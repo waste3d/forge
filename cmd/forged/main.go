@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
 	"time"
 
+	"github.com/waste3d/forge/internal/orchestrator"
 	"github.com/waste3d/forge/internal/parser"
 	pb "github.com/waste3d/forge/proto"
 
@@ -23,45 +25,43 @@ func (s *forgeServer) Up(req *pb.UpRequest, stream pb.Forge_UpServer) error {
 
 	config, err := parser.Parse([]byte(req.GetConfigContent()))
 	if err != nil {
-		log.Printf("Ошибка парсинга конфигурации: %v", err)
 		return status.Errorf(codes.InvalidArgument, "ошибка парсинга forge.yaml: %v", err)
 	}
 
-	// --- НОВЫЙ БЛОК: Строгая валидация конфигурации ---
-	log.Println("Проверка конфигурации...")
-
-	// 1. Проверяем версию.
 	if config.Version != 1 {
-		errText := fmt.Sprintf("неподдерживаемая версия конфигурации: %d. Поддерживается только версия 1", config.Version)
-		log.Println(errText)
-		return status.Errorf(codes.InvalidArgument, errText)
+		return status.Errorf(codes.InvalidArgument, "неподдерживаемая версия конфигурации: %d", config.Version)
 	}
-	log.Println(" -> Версия [OK]")
-
-	// 2. Проверяем, что appName указано в конфиге. Это теперь обязательное поле.
 	if config.AppName == "" {
-		errText := "в файле forge.yaml не указано обязательное поле 'appName'"
-		log.Println(errText)
-		return status.Errorf(codes.InvalidArgument, errText)
+		return status.Errorf(codes.InvalidArgument, "в файле forge.yaml не указано обязательное поле 'appName'")
 	}
-	log.Printf(" -> Имя приложения: %s [OK]", config.AppName)
-	// --- КОНЕЦ НОВОГО БЛОКА ---
-
-	// Теперь мы используем appName только из конфига
-	appNameFromConfig := config.AppName
-	log.Printf("Начинаем работу над приложением: %s", appNameFromConfig)
+	appName := config.AppName
+	log.Printf("Конфигурация для '%s' проверена.", appName)
 
 	stream.Send(&pb.LogEntry{
 		ServiceName: "forged-daemon",
-		Message:     fmt.Sprintf("Конфигурация для '%s' принята и проверена.", appNameFromConfig),
+		Timestamp:   time.Now().Unix(),
+		Message:     fmt.Sprintf("Конфигурация для '%s' принята и проверена.", appName),
 	})
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 	stream.Send(&pb.LogEntry{
 		ServiceName: "forged-daemon",
-		Message:     "Начинаю подготовку к запуску сервисов...",
+		Timestamp:   time.Now().Unix(),
+		Message:     "Начинаю оркестрацию...",
 	})
 
-	log.Printf("Обработка запроса для '%s' завершена.", appNameFromConfig)
+	orch, err := orchestrator.New(appName, stream)
+	if err != nil {
+		log.Printf("Критическая ошибка инициализации оркестратора: %v", err)
+		return status.Errorf(codes.Internal, "ошибка инициализации: %v", err)
+	}
+
+	err = orch.Up(context.Background(), config)
+	if err != nil {
+		log.Printf("Оркестрация для '%s' провалилась: %v", appName, err)
+		return status.Errorf(codes.Internal, "ошибка выполнения оркестрации: %v", err)
+	}
+
+	log.Printf("Оркестрация для '%s' успешно завершена.", appName)
 	return nil
 }
 
