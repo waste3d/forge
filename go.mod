@@ -1,4 +1,4 @@
-module forge
+module github.com/waste3d/forge
 
 go 1.24.4
 
