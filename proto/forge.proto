@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package forge;
+
+option go_package = "github.com/waste3d/forge/proto";
+
+service Forge {
+    // Запуск среды на фоне конфигурации
+    rpc Up(UpRequest) returns (stream LogEntry);
+
+    // Остановка среды и ее удаленние
+    rpc Down(DownRequest) returns (DownResponse);
+}
+
+message UpRequest {
+    // Содержимое файла forge.yaml в виде строки
+    string config_content = 1;
+
+    // Уникальное имя для этой среды 
+    string app_name = 2;
+}
+
+message DownRequest {
+    string app_name = 1;
+}
+
+message DownResponse {
+    string message = 1;
+}
+
+message LogEntry {
+    string service_name = 1;
+    int64 timestamp = 2;
+    string message = 3;
+}
