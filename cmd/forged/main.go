@@ -6,8 +6,12 @@ import (
 	"net"
 	"time"
 
+	"github.com/waste3d/forge/internal/parser"
 	pb "github.com/waste3d/forge/proto"
+
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type forgeServer struct {
@@ -15,36 +19,59 @@ type forgeServer struct {
 }
 
 func (s *forgeServer) Up(req *pb.UpRequest, stream pb.Forge_UpServer) error {
-	log.Printf("Получен Up-запрос для приложения: %s", req.GetAppName())
-	log.Printf("Содержимое конфига: \n%s", req.GetConfigContent())
+	log.Println("Получен Up-запрос...")
 
-	for i := 0; i < 5; i++ {
-		entry := &pb.LogEntry{
-			ServiceName: "forged-daemon",
-			Timestamp:   time.Now().Unix(),
-			Message:     fmt.Sprintf("...отправка тестового лога #%d", i+1),
-		}
-		if err := stream.Send(entry); err != nil {
-			log.Printf("Ошибка при отправке лога в стрим: %v", err)
-			return err
-		}
-		time.Sleep(500 * time.Millisecond)
+	config, err := parser.Parse([]byte(req.GetConfigContent()))
+	if err != nil {
+		log.Printf("Ошибка парсинга конфигурации: %v", err)
+		return status.Errorf(codes.InvalidArgument, "ошибка парсинга forge.yaml: %v", err)
 	}
-	log.Printf("Отправка логов для '%s' завершена.", req.GetAppName())
+
+	// --- НОВЫЙ БЛОК: Строгая валидация конфигурации ---
+	log.Println("Проверка конфигурации...")
+
+	// 1. Проверяем версию.
+	if config.Version != 1 {
+		errText := fmt.Sprintf("неподдерживаемая версия конфигурации: %d. Поддерживается только версия 1", config.Version)
+		log.Println(errText)
+		return status.Errorf(codes.InvalidArgument, errText)
+	}
+	log.Println(" -> Версия [OK]")
+
+	// 2. Проверяем, что appName указано в конфиге. Это теперь обязательное поле.
+	if config.AppName == "" {
+		errText := "в файле forge.yaml не указано обязательное поле 'appName'"
+		log.Println(errText)
+		return status.Errorf(codes.InvalidArgument, errText)
+	}
+	log.Printf(" -> Имя приложения: %s [OK]", config.AppName)
+	// --- КОНЕЦ НОВОГО БЛОКА ---
+
+	// Теперь мы используем appName только из конфига
+	appNameFromConfig := config.AppName
+	log.Printf("Начинаем работу над приложением: %s", appNameFromConfig)
+
+	stream.Send(&pb.LogEntry{
+		ServiceName: "forged-daemon",
+		Message:     fmt.Sprintf("Конфигурация для '%s' принята и проверена.", appNameFromConfig),
+	})
+	time.Sleep(500 * time.Millisecond)
+	stream.Send(&pb.LogEntry{
+		ServiceName: "forged-daemon",
+		Message:     "Начинаю подготовку к запуску сервисов...",
+	})
+
+	log.Printf("Обработка запроса для '%s' завершена.", appNameFromConfig)
 	return nil
 }
-
-// TODO: Реализовать метод down
 
 func main() {
 	lis, err := net.Listen("tcp", ":9001")
 	if err != nil {
 		log.Fatalf("Не удалось запустить listener: %v", err)
 	}
-
 	s := grpc.NewServer()
 	pb.RegisterForgeServer(s, &forgeServer{})
-
 	log.Println("Демон 'forged' запущен на порту :9001...")
 	if err := s.Serve(lis); err != nil {
 		log.Fatalf("Ошибка gRPC сервера: %v", err)

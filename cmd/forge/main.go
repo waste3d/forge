@@ -7,47 +7,56 @@ import (
 	"log"
 	"os"
 
+	// "path/filepath" // Больше не нужен
+
 	"github.com/spf13/cobra"
-	pb "github.com/waste3d/forge/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+
+	pb "github.com/waste3d/forge/proto"
 )
 
 var rootCmd = &cobra.Command{
 	Use:   "forge",
-	Short: "Forge - это простой оркестратор сред разработки",
-	Long: `Forge помогает разработчикам быстро разворачивать и управлять
-	сложными проектами локально с помощью одного простого YAML файла.`,
+	Short: "Forge - оркестратор сред разработки",
 }
 
 var upCmd = &cobra.Command{
 	Use:   "up",
 	Short: "Создает и запускает среду разработки согласно forge.yaml",
 	Run: func(cmd *cobra.Command, args []string) {
-		log.Println("Подключение к демону 'forged' на localhost:9001...")
+		// --- УДАЛЕНО: Блок определения appName по пути ---
+
+		log.Println("Чтение файла forge.yaml...")
+		yamlContent, err := os.ReadFile("forge.yaml")
+		if err != nil {
+			log.Fatalf("Не удалось прочитать файл forge.yaml: %v", err)
+		}
 
 		conn, err := grpc.Dial("localhost:9001", grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err != nil {
-			log.Fatalf("Не удалось подключиться к демону: %v. Убедитесь, что демон 'forged' запущен.", err)
+			log.Fatalf("Не удалось подключиться к демону: %v", err)
 		}
 		defer conn.Close()
-
-		log.Println("Соединение установлено.")
-
 		client := pb.NewForgeClient(conn)
 
+		// --- ИЗМЕНЕНИЕ: Поле AppName в запросе больше не используется ---
+		// Демон сам извлечет имя из конфига. Мы можем передать пустую строку,
+		// хотя в будущем это поле можно будет использовать для переопределения
+		// имени через флаг командной строки, например: `forge up --name my-override`
 		req := &pb.UpRequest{
-			AppName:       "my-first-app",
-			ConfigContent: "services:\n  - name: web\n  - name: db",
+			AppName:       "", // Демон должен извлечь имя из ConfigContent
+			ConfigContent: string(yamlContent),
 		}
 
-		log.Println("Отправка Up-запроса демону...")
-
+		log.Println("Отправляем Up-запрос демону...")
 		stream, err := client.Up(context.Background(), req)
 		if err != nil {
-			log.Fatalf("Ошибка при отправке запроса: %v", err)
+			// Теперь здесь могут быть осмысленные ошибки от сервера!
+			log.Fatalf("Ошибка при вызове Up: %v", err)
 		}
 
+		// ... остальная часть функции Run остается без изменений
 		log.Println("Ожидание логов от демона...")
 		for {
 			logEntry, err := stream.Recv()
@@ -58,19 +67,15 @@ var upCmd = &cobra.Command{
 			if err != nil {
 				log.Fatalf("Критическая ошибка при чтении потока от сервера: %v", err)
 			}
-			fmt.Printf("[%s]: %s\n", logEntry.GetServiceName(), logEntry.GetMessage())
+			fmt.Printf("[%s] %s\n", logEntry.GetServiceName(), logEntry.GetMessage())
 		}
 		fmt.Println("\nКоманда 'up' успешно завершена.")
-
 	},
 }
 
 func main() {
 	rootCmd.AddCommand(upCmd)
-	// TODO: Здесь мы будем добавлять другие команды, например, `downCmd`.
-
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Println(err)
 		os.Exit(1)
 	}
 }
