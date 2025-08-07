@@ -3,10 +3,10 @@ name: Lint Go Code
 on:
   push:
     branches:
-      - main # или ваша основная ветка
+      - master
   pull_request:
     branches:
-      - main
+      - master
 
 jobs:
   golangci:
