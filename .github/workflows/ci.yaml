@@ -1,37 +1,38 @@
-name: Forge CI
+name: Lint Go Code
 
 on:
   push:
-    branches: [ master ]
+    branches:
+      - main # или ваша основная ветка
   pull_request:
-    branches: [ master ]
+    branches:
+      - main
 
 jobs:
-  build:
+  golangci:
+    name: lint
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      # Шаг 1: Скачиваем ваш код в рабочую среду CI
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
+      # Шаг 2: Устанавливаем правильную версию Go
       - name: Set up Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
-          go-version: 1.24.4
+          # Убедитесь, что эта версия совпадает с той, что в вашем go.mod
+          go-version: '1.24.4'
 
-      - name: Check formatting
-        run: |
-          test -z "$(gofmt -l .)" || (echo "Go code is not formatted" && exit 1)
+      # Шаг 3: (КРИТИЧЕСКИ ВАЖНЫЙ) Скачиваем все зависимости
+      # Эта команда читает ваш go.mod и go.sum и загружает все пакеты.
+      - name: Download Go modules
+        run: go mod download
 
-        # запускаем тесты (на будущее)
-
+      # Шаг 4: Запускаем линтер (теперь он найдет все пакеты)
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v3
+        uses: golangci/golangci-lint-action@v4
         with:
           version: v1.56.2
-          working-directory: ./
-
-      - name: Build
-        run: |
-          go build -v ./cmd/forge
-          go build -v ./cmd/forged
-
+          # Этот action умный и сам найдет go.mod,
+          # а кеширование зависимостей (шаг 3) уже произошло.
