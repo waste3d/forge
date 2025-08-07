@@ -137,10 +137,9 @@ func (o *Orchestrator) startDatabase(ctx context.Context, dbConfig *parser.DBCon
 
 	hostPort := fmt.Sprintf("%d", dbConfig.Port)
 
-	containerPort := nat.Port(fmt.Sprintf("%s/tcp", dbConfig.InternalPort)) // "5432/tcp" - стандартный порт Postgres
 	hostConfig := &container.HostConfig{
 		PortBindings: nat.PortMap{
-			containerPort: []nat.PortBinding{
+			nat.Port(fmt.Sprintf("%d/tcp", dbConfig.InternalPort)): []nat.PortBinding{
 				{
 					HostIP:   "0.0.0.0",
 					HostPort: hostPort,
