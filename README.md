@@ -23,8 +23,8 @@ Forge — это инструмент командной строки, созд�
 
 1.  Клонируйте репозиторий:
     ```bash
-    git clone https://github.com/YOUR_USERNAME/YOUR_PROJECT.git
-    cd YOUR_PROJECT
+    git clone https://github.com/waste3d/forge.git
+    cd forge
     ```
 
 2.  Запустите скрипт установки:
