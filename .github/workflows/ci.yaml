@@ -35,7 +35,7 @@ jobs:
           go-version: '1.24.4'
           cache: true
           # Указываем путь к go.mod для надежного кеширования
-          cache-dependency-path: ./go.sum
+          cache-dependency-path: ../go.sum
 
 
       # Шаг 3: Запускаем линтер.
