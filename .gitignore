@@ -1,4 +1,2 @@
-.github/*
 config.yaml
 .env
-.gitignore
