@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"os"
 	"sync"
 	"time"
 
@@ -125,21 +124,20 @@ func (o *Orchestrator) startDatabase(ctx context.Context, dbConfig *parser.DBCon
 		o.sendLog(dbConfig.Name, fmt.Sprintf("Ошибка при извлечении образа: %v", err))
 		return err
 	}
-	io.Copy(os.Stdout, reader)
+	io.Copy(io.Discard, reader)
+	reader.Close()
 	o.sendLog(dbConfig.Name, "Image pulled successfully")
 
 	containerName := fmt.Sprintf("%s-%s-db", dbConfig.Name, uuid.New().String())
 
 	containerConfig := &container.Config{
 		Image: imageName,
-		Env: []string{
-			"POSTGRES_PASSWORD=secretpassword", // TODO: Добавить пароль из конфига
-		},
+		Env:   dbConfig.Env,
 	}
 
 	hostPort := fmt.Sprintf("%d", dbConfig.Port)
 
-	containerPort := nat.Port(fmt.Sprintf("%s/tcp", "5432")) // "5432/tcp" - стандартный порт Postgres
+	containerPort := nat.Port(fmt.Sprintf("%s/tcp", dbConfig.InternalPort)) // "5432/tcp" - стандартный порт Postgres
 	hostConfig := &container.HostConfig{
 		PortBindings: nat.PortMap{
 			containerPort: []nat.PortBinding{

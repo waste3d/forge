@@ -19,8 +19,10 @@ type ServiceConfig struct {
 
 // DBConfig описывает одну базу данных
 type DBConfig struct {
-	Name    string `yaml:"name"`
-	Type    string `yaml:"type"` // example: "postgres", "redis", "mongo", etc..
-	Version string `yaml:"version"`
-	Port    int    `yaml:"port"`
+	Name         string   `yaml:"name"`
+	Type         string   `yaml:"type"` // example: "postgres", "redis", "mongo", etc..
+	Version      string   `yaml:"version"`
+	Port         int      `yaml:"port"`
+	InternalPort int      `yaml:"internalPort"`
+	Env          []string `yaml:"env"`
 }
