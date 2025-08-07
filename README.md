@@ -168,7 +168,7 @@ case ":$PATH:" in
 esac
 
 exit 0
-```
+
 </details>
 
 <details>
