@@ -1,13 +1,30 @@
 run:
+  go: '1.24.4'
+  # Таймаут на выполнение, 5 минут — более чем достаточно
   timeout: 5m
+  # Автоматически исправлять некоторые проблемы
+  fix: false
 
 linters:
   enable:
-    - errcheck
-    - gosimple
-    - govet
-    - ineffassign
-    - staticcheck
-    - typecheck
-    - unused
-    - gofmt
+    - govet         # Находит подозрительные конструкции (включая unused)
+    - goimports     # Проверяет и форматирует импорты
+    - typecheck     # Критически важная проверка: компилируется ли код
+    - errcheck      # Проверяет, что ошибки обрабатываются
+    - staticcheck   # Мощный статический анализатор
+    - unconvert     # Находит лишние преобразования типов
+    - unused        # Находит неиспользуемый код (дублирует часть govet, но надежно)
+
+linters-settings:
+  goimports:
+    # Указываем префикс для ваших локальных пакетов
+    local-prefixes: github.com/waste3d/forge
+
+issues:
+  # Не игнорируем ошибки в сгенерированных файлах, так как proto-файлы важны
+  exclude-use-default: false
+  # Можно добавить специфичные исключения, если нужно
+  # exclude-rules:
+  #   - path: _test\.go
+  #     linters:
+  #       - errcheck
