@@ -24,7 +24,13 @@ jobs:
 
         # запускаем тесты (на будущее)
 
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v3
+        with:
+          version: v1.56.2
+
       - name: Build
         run: |
           go build -v ./cmd/forge
           go build -v ./cmd/forged
+
