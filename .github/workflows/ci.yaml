@@ -1,38 +1,41 @@
+# Имя вашего workflow
 name: Lint Go Code
 
+# Триггеры для запуска (при пуше или создании pull request в ветку main)
 on:
   push:
     branches:
-      - master
+      - main
   pull_request:
     branches:
-      - master
+      - main
 
+# Задачи, которые будут выполняться
 jobs:
+  # Название задачи
   golangci:
     name: lint
+    # На какой операционной системе запускать
     runs-on: ubuntu-latest
     steps:
       # Шаг 1: Скачиваем ваш код в рабочую среду CI
+      # Это стандартное действие, оно обязательно
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # Шаг 2: Устанавливаем правильную версию Go
+      # Шаг 2: Устанавливаем Go. Версия должна совпадать с версией в вашем go.mod
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          # Убедитесь, что эта версия совпадает с той, что в вашем go.mod
           go-version: '1.24.4'
+          # Включаем кеширование модулей Go, чтобы ускорить последующие сборки
+          cache: true
 
-      # Шаг 3: (КРИТИЧЕСКИ ВАЖНЫЙ) Скачиваем все зависимости
-      # Эта команда читает ваш go.mod и go.sum и загружает все пакеты.
-      - name: Download Go modules
-        run: go mod download
-
-      # Шаг 4: Запускаем линтер (теперь он найдет все пакеты)
+      # Шаг 3: ЗАПУСКАЕМ ЛИНТЕР ПРАВИЛЬНЫМ СПОСОБОМ
+      # Этот action был создан разработчиками golangci-lint специально для GitHub Actions.
+      # Он сам заботится о кешировании, загрузке зависимостей и правильной рабочей директории.
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v4
         with:
+          # Версия линтера
           version: v1.56.2
-          # Этот action умный и сам найдет go.mod,
-          # а кеширование зависимостей (шаг 3) уже произошло.
