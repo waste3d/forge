@@ -1,0 +1,8 @@
+appName: test-app
+version: 1
+
+databases:
+  - name: main-db
+    type: postgres
+    version: 15
+    port: 5432

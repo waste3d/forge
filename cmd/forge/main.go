@@ -73,8 +73,34 @@ var upCmd = &cobra.Command{
 	},
 }
 
+var downCmd = &cobra.Command{
+	Use:   "down [appName]",
+	Short: "Останавливает и удаляет среду разработки",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		appName := args[0]
+		log.Printf("Получен Down-запрос для приложения '%s'...", appName)
+
+		conn, err := grpc.Dial("localhost:9001", grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			log.Fatalf("Не удалось подключиться к демону: %v", err)
+		}
+		defer conn.Close()
+		client := pb.NewForgeClient(conn)
+
+		req := &pb.DownRequest{AppName: appName}
+		response, err := client.Down(context.Background(), req)
+		if err != nil {
+			log.Fatalf("Ошибка при вызове Down: %v", err)
+		}
+		fmt.Printf("Ответ от сервера: %s\n", response.GetMessage())
+		fmt.Println("Команда 'down' успешно завершена.")
+	},
+}
+
 func main() {
 	rootCmd.AddCommand(upCmd)
+	rootCmd.AddCommand(downCmd)
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}

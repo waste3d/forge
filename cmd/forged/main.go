@@ -65,11 +65,36 @@ func (s *forgeServer) Up(req *pb.UpRequest, stream pb.Forge_UpServer) error {
 	return nil
 }
 
+func (s *forgeServer) Down(ctx context.Context, req *pb.DownRequest) (*pb.DownResponse, error) {
+	appName := req.GetAppName()
+	log.Printf("Получен Down-запрос для приложения '%s'...", appName)
+
+	if appName == "" {
+		return nil, status.Errorf(codes.InvalidArgument, "в запросе не указано обязательное поле 'appName'")
+	}
+
+	orch, err := orchestrator.New(appName, nil)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "ошибка инициализации оркестратора: %v", err)
+	}
+
+	err = orch.Down(ctx, appName)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "ошибка выполнения оркестрации: %v", err)
+	}
+
+	log.Printf("Процедура Down для приложения '%s' успешно завершена", appName)
+	return &pb.DownResponse{
+		Message: fmt.Sprintf("Процедура Down для приложения '%s' успешно завершена", appName),
+	}, nil
+}
+
 func main() {
 	lis, err := net.Listen("tcp", ":9001")
 	if err != nil {
 		log.Fatalf("Не удалось запустить listener: %v", err)
 	}
+
 	s := grpc.NewServer()
 	pb.RegisterForgeServer(s, &forgeServer{})
 	log.Println("Демон 'forged' запущен на порту :9001...")
