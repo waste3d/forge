@@ -2,13 +2,11 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"log"
 	"os"
 
-	// "path/filepath" // Больше не нужен
-
+	"github.com/fatih/color" // НОВЫЙ ИМПОРТ
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -25,9 +23,12 @@ var upCmd = &cobra.Command{
 	Use:   "up",
 	Short: "Создает и запускает среду разработки согласно forge.yaml",
 	Run: func(cmd *cobra.Command, args []string) {
-		// --- УДАЛЕНО: Блок определения appName по пути ---
+		// ИЗМЕНЕНИЕ: Используем цветные логгеры для самого клиента
+		log.SetOutput(os.Stdout)
+		log.SetFlags(0)
+		infoLog := color.New(color.FgYellow).PrintlnFunc()
 
-		log.Println("Чтение файла forge.yaml...")
+		infoLog("Чтение файла forge.yaml...")
 		yamlContent, err := os.ReadFile("forge.yaml")
 		if err != nil {
 			log.Fatalf("Не удалось прочитать файл forge.yaml: %v", err)
@@ -40,46 +41,63 @@ var upCmd = &cobra.Command{
 		defer conn.Close()
 		client := pb.NewForgeClient(conn)
 
-		// --- ИЗМЕНЕНИЕ: Поле AppName в запросе больше не используется ---
-		// Демон сам извлечет имя из конфига. Мы можем передать пустую строку,
-		// хотя в будущем это поле можно будет использовать для переопределения
-		// имени через флаг командной строки, например: `forge up --name my-override`
 		req := &pb.UpRequest{
-			AppName:       "", // Демон должен извлечь имя из ConfigContent
+			AppName:       "",
 			ConfigContent: string(yamlContent),
 		}
 
-		log.Println("Отправляем Up-запрос демону...")
+		infoLog("Отправляем Up-запрос демону...")
 		stream, err := client.Up(context.Background(), req)
 		if err != nil {
-			// Теперь здесь могут быть осмысленные ошибки от сервера!
 			log.Fatalf("Ошибка при вызове Up: %v", err)
 		}
 
-		// ... остальная часть функции Run остается без изменений
-		log.Println("Ожидание логов от демона...")
+		infoLog("Ожидание логов от демона...")
+
+		// НОВЫЙ БЛОК: Создаем цветные принтеры для разных сервисов
+		cDaemon := color.New(color.FgCyan)
+		cDB := color.New(color.FgGreen)
+		cDefault := color.New(color.FgWhite)
+
 		for {
 			logEntry, err := stream.Recv()
 			if err == io.EOF {
-				log.Println("Сервер завершил передачу логов.")
+				color.Green("\nСервер завершил передачу логов.")
 				break
 			}
 			if err != nil {
 				log.Fatalf("Критическая ошибка при чтении потока от сервера: %v", err)
 			}
-			fmt.Printf("[%s] %s\n", logEntry.GetServiceName(), logEntry.GetMessage())
+
+			// ИЗМЕНЕНИЕ: Выбираем цвет в зависимости от имени сервиса
+			serviceName := logEntry.GetServiceName()
+			message := logEntry.GetMessage()
+
+			switch serviceName {
+			case "forged-daemon":
+				cDaemon.Printf("[%s] %s\n", serviceName, message)
+			case "main-db":
+				cDB.Printf("[%s] %s\n", serviceName, message)
+			// Сюда можно добавлять 'case' для других сервисов, например, 'cache-redis'
+			default:
+				cDefault.Printf("[%s] %s\n", serviceName, message)
+			}
 		}
-		fmt.Println("\nКоманда 'up' успешно завершена.")
+		color.Green("\nКоманда 'up' успешно завершена.")
 	},
 }
 
 var downCmd = &cobra.Command{
 	Use:   "down [appName]",
-	Short: "Останавливает и удаляет среду разработки",
+	Short: "Останавливает и удаляет окружение разработки",
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
+		// ИЗМЕНЕНИЕ: Тоже используем цветной вывод
+		log.SetOutput(os.Stdout)
+		log.SetFlags(0)
+
 		appName := args[0]
-		log.Printf("Получен Down-запрос для приложения '%s'...", appName)
+		color.Yellow("Отправка запроса на удаление окружения '%s'...", appName)
 
 		conn, err := grpc.Dial("localhost:9001", grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err != nil {
@@ -88,13 +106,17 @@ var downCmd = &cobra.Command{
 		defer conn.Close()
 		client := pb.NewForgeClient(conn)
 
-		req := &pb.DownRequest{AppName: appName}
-		response, err := client.Down(context.Background(), req)
+		req := &pb.DownRequest{
+			AppName: appName,
+		}
+
+		resp, err := client.Down(context.Background(), req)
 		if err != nil {
 			log.Fatalf("Ошибка при вызове Down: %v", err)
 		}
-		fmt.Printf("Ответ от сервера: %s\n", response.GetMessage())
-		fmt.Println("Команда 'down' успешно завершена.")
+
+		color.Green("Получен ответ от демона: %s", resp.GetMessage())
+		color.Green("\nКоманда 'down' успешно завершена.")
 	},
 }
 
