@@ -1,0 +1,14 @@
+version: 1
+appName: my-awesome-app
+
+databases:
+  - name: main-db
+    type: "postgres"
+    version: "15"
+    port: 54321
+
+services:
+  - name: backend-api
+    repo: "https://github.com/waste3d/forge-test-go-service.git"
+    port: 8080
+    # dependsOn: [ "main-db" ] # Пока не реализовано, но скоро будет

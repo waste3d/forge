@@ -12,9 +12,10 @@ type Config struct {
 type ServiceConfig struct {
 	Name      string   `yaml:"name"`
 	Type      string   `yaml:"type"` // example: go, node, python, etc..
-	Repo      string   `yaml:"repo"`
+	Repo      string   `yaml:"repo,omitempty"`
+	Path      string   `yaml:"path,omitempty"`
 	Port      int      `yaml:"port"`
-	DependsOn []string `yaml:"dependsOn"`
+	DependsOn []string `yaml:"dependsOn,omitempty"`
 }
 
 // DBConfig описывает одну базу данных

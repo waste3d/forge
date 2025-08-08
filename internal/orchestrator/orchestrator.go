@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os"
+	"os/exec"
 	"sync"
 	"time"
 
@@ -45,6 +47,24 @@ func New(appName string, stream pb.Forge_UpServer) (*Orchestrator, error) {
 }
 
 func (o *Orchestrator) Up(ctx context.Context, config *parser.Config) error {
+	networkName := fmt.Sprintf("forge-network-%s", o.appName)
+	o.sendLog("forged-daemon", fmt.Sprintf("Создание сети %s...", networkName))
+
+	networkResp, err := o.dockerClient.NetworkCreate(ctx, networkName, types.NetworkCreate{})
+	if err != nil {
+		o.sendLog("forged-daemon", fmt.Sprintf("Ошибка создания сети %s: %v", networkName, err))
+		return fmt.Errorf("ошибка создания сети %s: %v", networkName, err)
+	}
+
+	o.sendLog("forged-daemon", fmt.Sprintf("Сетевой ресурс %s создан", networkResp.ID))
+
+	networkID := networkResp.ID
+	if err := o.stateManager.AddResource(o.appName, "network", networkID); err != nil {
+		o.dockerClient.NetworkRemove(ctx, networkID)
+		o.sendLog("forged-daemon", fmt.Sprintf("Ошибка сохранения состояния для сети %s: %v", networkID[:12], err))
+		return fmt.Errorf("ошибка сохранения состояния для сети %s: %v", networkID[:12], err)
+	}
+
 	var wg sync.WaitGroup
 
 	for _, dbConfig := range config.Databases {
@@ -96,6 +116,11 @@ func (o *Orchestrator) Down(ctx context.Context, appName string) error {
 
 				}
 				log.Printf("Контейнер %s успешно удален.", res.ID[:12])
+			case "network":
+				log.Printf("Удаление сетевого ресурса %s...", res.ID[:12])
+				o.dockerClient.NetworkRemove(ctx, res.ID)
+				o.stateManager.RemoveResource(res.ID)
+				log.Printf("Сеть %s удалена.", resource.ID[:12])
 			default:
 				log.Printf("Неизвестный тип ресурса '%s', пропускаю.", res.ResourceType)
 				return
@@ -174,6 +199,45 @@ func (o *Orchestrator) startDatabase(ctx context.Context, dbConfig *parser.DBCon
 
 	o.sendLog(dbConfig.Name, fmt.Sprintf("База данных успешно запущена на порту localhost:%d", dbConfig.Port))
 	return nil
+}
+
+func (o *Orchestrator) startService(ctx context.Context, serviceConfig *parser.ServiceConfig) error {
+	o.sendLog(serviceConfig.Name, "Начинаю запуск сервиса...")
+
+	var buildContextPath string
+
+	if serviceConfig.Repo != "" && serviceConfig.Path != "" {
+		return fmt.Errorf("у сервиса '%s' не могут быть одновременно указаны 'repo' и 'path'", serviceConfig.Name)
+	}
+	if serviceConfig.Repo == "" && serviceConfig.Path == "" {
+		return fmt.Errorf("у сервиса '%s' не указан 'repo' или 'path'", serviceConfig.Name)
+	}
+
+	if serviceConfig.Repo != "" {
+		tempDir, err := os.MkdirTemp("", "forge-build-*")
+		if err != nil {
+			return fmt.Errorf("не удалось создать временную директорию: %v", err)
+		}
+		defer os.RemoveAll(tempDir)
+		o.sendLog(serviceConfig.Name, fmt.Sprintf("Клонирование репозитория %s...", serviceConfig.Repo))
+
+		cmd := exec.Command("git", "clone", serviceConfig.Repo, tempDir)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("не удалось склонировать репозиторий: %w, вывод: %s", err, string(output))
+		}
+		buildContextPath = tempDir
+	}
+
+	if serviceConfig.Path != "" {
+		o.sendLog(serviceConfig.Name, fmt.Sprintf("Используется локальный путь: %s", serviceConfig.Path))
+
+		if _, err := os.Stat(serviceConfig.Path); os.IsNotExist(err) {
+			return fmt.Errorf("локальный путь '%s' не найден", serviceConfig.Path)
+		}
+		buildContextPath = serviceConfig.Path
+	}
+
+	// 2 - Собираем образ (пока только докер)
 }
 
 func (o *Orchestrator) sendLog(serviceName, message string) {
