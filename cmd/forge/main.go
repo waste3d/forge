@@ -9,12 +9,14 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath" // Добавлен для работы с путями
 	"time"
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"gopkg.in/yaml.v3" // Добавлен для манипуляции с YAML
 
 	pb "github.com/waste3d/forge/proto"
 )
@@ -23,9 +25,9 @@ const daemonAddress = "localhost:9001"
 
 // Глобальные цветные логгеры для удобства
 var (
-	infoLog    = color.New(color.FgYellow).PrintfFunc()
-	successLog = color.New(color.FgGreen).PrintfFunc()
-	errorLog   = color.New(color.FgRed).FprintFunc()
+	infoLog    = color.New(color.FgYellow).Printf
+	successLog = color.New(color.FgGreen).Printf
+	errorLog   = color.New(color.FgRed).Fprintf
 )
 
 // --- Главная команда ---
@@ -39,38 +41,71 @@ var bootCmd = &cobra.Command{
 	Use:   "boot",
 	Short: "Запускает демон (если нужно) и поднимает окружение",
 	Run: func(cmd *cobra.Command, args []string) {
-		// Вызываем основную логику. Если она вернет ошибку...
 		if err := runBootLogic(); err != nil {
-			// ...печатаем ее красным в стандартный поток ошибок (stderr)
 			errorLog(os.Stderr, "\n❌ Ошибка выполнения 'boot': %v\n", err)
 			os.Exit(1)
 		}
-		// Если ошибок не было, печатаем сообщение об успехе
-		successLog("\n✅ Команда 'boot' успешно завершена.")
+		successLog("\n✅ Команда 'boot' успешно завершена.\n")
 	},
 }
 
-// runBootLogic содержит всю логику для команды boot и возвращает ошибку при неудаче.
+// runBootLogic содержит всю логику для команды boot.
 func runBootLogic() error {
-	// 1. Проверяем, запущен ли демон
+	// 1. Проверяем и запускаем демон (если нужно)
 	if isDaemonRunning() {
-		infoLog("Демон 'forged' уже запущен.")
+		infoLog("Демон 'forged' уже запущен.\n")
 	} else {
-		infoLog("Демон 'forged' не найден. Запускаем его в фоновом режиме...")
+		infoLog("Демон 'forged' не найден. Запускаем его в фоновом режиме...\n")
 		if err := startDaemon(); err != nil {
 			return fmt.Errorf("критическая ошибка запуска демона: %w", err)
 		}
-		// Даем демону время на старт перед тем, как к нему подключаться
 		time.Sleep(2 * time.Second)
 	}
 
-	// 2. Выполняем логику, аналогичную 'up'
-	infoLog("Чтение файла forge.yaml...")
-	yamlContent, err := os.ReadFile("forge.yaml")
+	// 2. Читаем и обрабатываем forge.yaml
+	infoLog("Чтение и обработка файла forge.yaml...\n")
+	configPath := "forge.yaml"
+	yamlContent, err := os.ReadFile(configPath)
 	if err != nil {
 		return fmt.Errorf("не удалось прочитать файл forge.yaml: %w", err)
 	}
 
+	// --- НОВЫЙ БЛОК: Преобразование путей в абсолютные ---
+	// Определяем абсолютную директорию, где лежит forge.yaml
+	configDir, err := filepath.Abs(filepath.Dir(configPath))
+	if err != nil {
+		return fmt.Errorf("не удалось определить директорию конфига: %w", err)
+	}
+
+	// Парсим YAML в общую структуру, чтобы найти и изменить поля 'path'
+	var configData map[string]interface{}
+	if err := yaml.Unmarshal(yamlContent, &configData); err != nil {
+		return fmt.Errorf("не удалось распарсить YAML для модификации путей: %w", err)
+	}
+
+	// Ищем секцию 'services' и проходимся по ней
+	if services, ok := configData["services"].([]interface{}); ok {
+		for _, s := range services {
+			if service, ok := s.(map[string]interface{}); ok {
+				// Если есть поле 'path' и оно не является абсолютным...
+				if path, ok := service["path"].(string); ok && path != "" && !filepath.IsAbs(path) {
+					// ...преобразуем его в абсолютный путь, соединив с директорией конфига
+					absPath := filepath.Join(configDir, path)
+					service["path"] = absPath // Заменяем относительный путь на абсолютный
+					infoLog("Преобразован относительный путь '%s' в '%s'\n", path, absPath)
+				}
+			}
+		}
+	}
+
+	// Преобразуем модифицированную структуру обратно в YAML-строку
+	modifiedYamlContent, err := yaml.Marshal(configData)
+	if err != nil {
+		return fmt.Errorf("не удалось собрать модифицированный YAML: %w", err)
+	}
+	// --- КОНЕЦ НОВОГО БЛОКА ---
+
+	// 3. Подключаемся к демону и отправляем запрос
 	conn, err := grpc.Dial(daemonAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return fmt.Errorf("не удалось подключиться к демону: %w", err)
@@ -78,16 +113,16 @@ func runBootLogic() error {
 	defer conn.Close()
 	client := pb.NewForgeClient(conn)
 
-	req := &pb.UpRequest{ConfigContent: string(yamlContent)}
+	// ОТПРАВЛЯЕМ МОДИФИЦИРОВАННЫЙ КОНТЕНТ
+	req := &pb.UpRequest{ConfigContent: string(modifiedYamlContent)}
 
-	infoLog("Отправляем Up-запрос демону...")
+	infoLog("Отправляем Up-запрос демону...\n")
 	stream, err := client.Up(context.Background(), req)
 	if err != nil {
 		return fmt.Errorf("ошибка при вызове Up: %w", err)
 	}
 
-	infoLog("Ожидание логов от демона...")
-	// Возвращаем ошибку, если она произойдет во время чтения логов
+	infoLog("Ожидание логов от демона...\n")
 	return printLogs(stream)
 }
 
@@ -102,13 +137,12 @@ var downCmd = &cobra.Command{
 			errorLog(os.Stderr, "\n❌ Ошибка выполнения 'down': %v\n", err)
 			os.Exit(1)
 		}
-		// Сообщение об успехе теперь печатается внутри runDownLogic
 	},
 }
 
 // runDownLogic содержит всю логику для команды down.
 func runDownLogic(appName string) error {
-	infoLog("Отправка запроса на удаление окружения '%s'...", appName)
+	infoLog("Отправка запроса на удаление окружения '%s'...\n", appName)
 
 	if !isDaemonRunning() {
 		return errors.New("демон 'forged' не запущен. Невозможно выполнить команду 'down'. Запустите окружение с помощью 'forge boot'")
@@ -127,8 +161,8 @@ func runDownLogic(appName string) error {
 		return fmt.Errorf("ошибка при вызове Down: %w", err)
 	}
 
-	successLog("Получен ответ от демона: %s", resp.GetMessage())
-	successLog("\n✅ Команда 'down' успешно завершена.")
+	successLog("Получен ответ от демона: %s\n", resp.GetMessage())
+	successLog("\n✅ Команда 'down' успешно завершена.\n")
 	return nil
 }
 
@@ -155,7 +189,7 @@ func startDaemon() error {
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("не удалось запустить 'forged': %w", err)
 	}
-	infoLog("Демон 'forged' запущен с PID: %d. Он будет работать в фоне.", cmd.Process.Pid)
+	infoLog("Демон 'forged' запущен с PID: %d. Он будет работать в фоне.\n", cmd.Process.Pid)
 	return nil
 }
 
@@ -163,43 +197,41 @@ func startDaemon() error {
 func printLogs(stream pb.Forge_UpClient) error {
 	cDaemon := color.New(color.FgCyan)
 	cDB := color.New(color.FgGreen)
-	cDefault := color.New(color.FgWhite)
+	cService := color.New(color.FgMagenta) // Новый цвет для сервисов
+	// cDefault := color.New(color.FgWhite)
 
 	for {
 		logEntry, err := stream.Recv()
 		if err == io.EOF {
-			// Это не ошибка, а нормальное завершение стрима.
-			return nil
+			return nil // Нормальное завершение стрима
 		}
 		if err != nil {
-			// А вот это уже реальная ошибка связи с сервером.
 			return fmt.Errorf("критическая ошибка при чтении потока от сервера: %w", err)
 		}
 
 		serviceName := logEntry.GetServiceName()
 		message := logEntry.GetMessage()
 
+		// Выбираем цвет в зависимости от имени сервиса
 		switch serviceName {
 		case "forged-daemon":
 			cDaemon.Printf("[%s] %s\n", serviceName, message)
-		case "main-db":
+		case "main-db": // Можно оставить специфичный цвет для БД
 			cDB.Printf("[%s] %s\n", serviceName, message)
 		default:
-			cDefault.Printf("[%s] %s\n", serviceName, message)
+			// Все остальные сервисы будут одного цвета
+			cService.Printf("[%s] %s\n", serviceName, message)
 		}
 	}
 }
 
 func main() {
-	// Убираем стандартные префиксы даты/времени из логов,
-	// так как мы полностью контролируем их вывод через fatih/color.
+	// Убираем стандартные префиксы даты/времени из логов
 	log.SetFlags(0)
 
 	rootCmd.AddCommand(bootCmd)
 	rootCmd.AddCommand(downCmd)
 
-	// Выполняем корневую команду. Ошибки парсинга флагов
-	// или неизвестных команд будут обработаны здесь самой библиотекой Cobra.
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
