@@ -21,7 +21,10 @@ import (
 	pb "github.com/waste3d/forge/proto"
 )
 
-const daemonAddress = "localhost:9001"
+const (
+	daemonAddress = "localhost:9001"
+	version       = "v0.1.0"
+)
 
 // Глобальные цветные логгеры для удобства
 var (
@@ -34,6 +37,14 @@ var (
 var rootCmd = &cobra.Command{
 	Use:   "forge",
 	Short: "Forge - оркестратор сред разработки",
+}
+
+var versionCmd = &cobra.Command{
+	Use:   "version",
+	Short: "Выводит версию приложения",
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Printf("forge version %s\n", version)
+	},
 }
 
 // --- Команда Boot ---
@@ -49,9 +60,7 @@ var bootCmd = &cobra.Command{
 	},
 }
 
-// runBootLogic содержит всю логику для команды boot.
 func runBootLogic() error {
-	// 1. Проверяем и запускаем демон (если нужно)
 	if isDaemonRunning() {
 		infoLog("Демон 'forged' уже запущен.\n")
 	} else {
@@ -62,7 +71,6 @@ func runBootLogic() error {
 		time.Sleep(2 * time.Second)
 	}
 
-	// 2. Читаем и обрабатываем forge.yaml
 	infoLog("Чтение и обработка файла forge.yaml...\n")
 	configPath := "forge.yaml"
 	yamlContent, err := os.ReadFile(configPath)
@@ -70,42 +78,32 @@ func runBootLogic() error {
 		return fmt.Errorf("не удалось прочитать файл forge.yaml: %w", err)
 	}
 
-	// --- НОВЫЙ БЛОК: Преобразование путей в абсолютные ---
-	// Определяем абсолютную директорию, где лежит forge.yaml
 	configDir, err := filepath.Abs(filepath.Dir(configPath))
 	if err != nil {
 		return fmt.Errorf("не удалось определить директорию конфига: %w", err)
 	}
 
-	// Парсим YAML в общую структуру, чтобы найти и изменить поля 'path'
 	var configData map[string]interface{}
 	if err := yaml.Unmarshal(yamlContent, &configData); err != nil {
 		return fmt.Errorf("не удалось распарсить YAML для модификации путей: %w", err)
 	}
 
-	// Ищем секцию 'services' и проходимся по ней
 	if services, ok := configData["services"].([]interface{}); ok {
 		for _, s := range services {
 			if service, ok := s.(map[string]interface{}); ok {
-				// Если есть поле 'path' и оно не является абсолютным...
 				if path, ok := service["path"].(string); ok && path != "" && !filepath.IsAbs(path) {
-					// ...преобразуем его в абсолютный путь, соединив с директорией конфига
 					absPath := filepath.Join(configDir, path)
-					service["path"] = absPath // Заменяем относительный путь на абсолютный
+					service["path"] = absPath
 					infoLog("Преобразован относительный путь '%s' в '%s'\n", path, absPath)
 				}
 			}
 		}
 	}
 
-	// Преобразуем модифицированную структуру обратно в YAML-строку
 	modifiedYamlContent, err := yaml.Marshal(configData)
 	if err != nil {
 		return fmt.Errorf("не удалось собрать модифицированный YAML: %w", err)
 	}
-	// --- КОНЕЦ НОВОГО БЛОКА ---
-
-	// 3. Подключаемся к демону и отправляем запрос
 	conn, err := grpc.Dial(daemonAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return fmt.Errorf("не удалось подключиться к демону: %w", err)
@@ -113,7 +111,6 @@ func runBootLogic() error {
 	defer conn.Close()
 	client := pb.NewForgeClient(conn)
 
-	// ОТПРАВЛЯЕМ МОДИФИЦИРОВАННЫЙ КОНТЕНТ
 	req := &pb.UpRequest{ConfigContent: string(modifiedYamlContent)}
 
 	infoLog("Отправляем Up-запрос демону...\n")
@@ -140,7 +137,6 @@ var downCmd = &cobra.Command{
 	},
 }
 
-// runDownLogic содержит всю логику для команды down.
 func runDownLogic(appName string) error {
 	infoLog("Отправка запроса на удаление окружения '%s'...\n", appName)
 
@@ -166,9 +162,6 @@ func runDownLogic(appName string) error {
 	return nil
 }
 
-// --- Вспомогательные функции ---
-
-// isDaemonRunning проверяет, слушает ли кто-то порт демона.
 func isDaemonRunning() bool {
 	conn, err := net.DialTimeout("tcp", daemonAddress, 1*time.Second)
 	if err != nil {
@@ -226,11 +219,11 @@ func printLogs(stream pb.Forge_UpClient) error {
 }
 
 func main() {
-	// Убираем стандартные префиксы даты/времени из логов
 	log.SetFlags(0)
 
 	rootCmd.AddCommand(bootCmd)
 	rootCmd.AddCommand(downCmd)
+	rootCmd.AddCommand(versionCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
