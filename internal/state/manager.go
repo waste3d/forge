@@ -13,6 +13,7 @@ type Resource struct {
 	ID           string
 	AppName      string
 	ResourceType string
+	ServiceName  string
 }
 
 type Manager struct {
@@ -20,7 +21,7 @@ type Manager struct {
 }
 
 func (m *Manager) GetResourceByApp(appName string) ([]Resource, error) {
-	query := "SELECT resource_id, app_name, resource_type FROM resources WHERE app_name = ?"
+	query := "SELECT resource_id, app_name, resource_type, service_name FROM resources WHERE app_name = ?"
 	rows, err := m.db.Query(query, appName)
 	if err != nil {
 		return nil, fmt.Errorf("не удалось получить ресурсы: %w", err)
@@ -30,7 +31,7 @@ func (m *Manager) GetResourceByApp(appName string) ([]Resource, error) {
 	var resources []Resource
 	for rows.Next() {
 		var r Resource
-		if err := rows.Scan(&r.ID, &r.AppName, &r.ResourceType); err != nil {
+		if err := rows.Scan(&r.ID, &r.AppName, &r.ResourceType, &r.ServiceName); err != nil {
 			return nil, fmt.Errorf("ошибка сканирования строки ресурса: %w", err)
 		}
 		resources = append(resources, r)
@@ -78,6 +79,7 @@ func (m *Manager) createTables() error {
 		app_name text not null,
 		resource_type text not null, -- "container", "network", etc.
 		resource_id text not null,
+		service_name text not null,
 		created_at datetime default current_timestamp
 	);
 	`
@@ -86,9 +88,9 @@ func (m *Manager) createTables() error {
 	return err
 }
 
-func (m *Manager) AddResource(appName, resourceType, resourceId string) error {
-	query := `insert into resources (app_name, resource_type, resource_id) values (?, ?, ?)`
-	_, err := m.db.Exec(query, appName, resourceType, resourceId)
+func (m *Manager) AddResource(appName, resourceType, resourceId, serviceName string) error {
+	query := `insert into resources (app_name, resource_type, resource_id, service_name) values (?, ?, ?, ?)`
+	_, err := m.db.Exec(query, appName, resourceType, resourceId, serviceName)
 	return err
 }
 
