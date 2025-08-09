@@ -11,6 +11,7 @@ import (
 
 	pb "github.com/waste3d/forge/internal/gen/proto"
 	"github.com/waste3d/forge/internal/orchestrator"
+	"github.com/waste3d/forge/internal/state"
 	"github.com/waste3d/forge/pkg/parser"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -44,6 +45,26 @@ func (s *forgeServer) Up(req *pb.UpRequest, stream pb.Forge_UpServer) error {
 	}
 
 	appName := config.AppName
+
+	sm, err := state.NewManager()
+	if err != nil {
+		s.logger.Error("критическая ошибка инициализации state manager", "error", err)
+		return status.Errorf(codes.Internal, "ошибка инициализации state manager: %v", err)
+	}
+	defer sm.Close()
+
+	existingResources, err := sm.GetResourceByApp(appName)
+	if err != nil {
+		s.logger.Error("ошибка проверки существующих ресурсов", "appName", appName, "error", err)
+		return status.Errorf(codes.Internal, "ошибка проверки состояния: %v", err)
+	}
+
+	if len(existingResources) > 0 {
+		errMsg := fmt.Sprintf("окружение для '%s' уже запущено. Пожалуйста, сначала выполните 'forge down %s'", appName, appName)
+		s.logger.Warn(errMsg)
+		return status.Errorf(codes.AlreadyExists, errMsg)
+	}
+
 	s.logger.Info("конфигурация проверена", "appName", appName)
 
 	stream.Send(&pb.LogEntry{
@@ -117,20 +138,20 @@ func (s *forgeServer) Logs(req *pb.LogRequest, stream pb.Forge_LogsServer) error
 	return orch.Logs(stream.Context(), serviceName, follow, stream)
 }
 
-func InitializeServer() *forgeServer {
+func InitializeServer(listenAddr string) *forgeServer {
 	handler := slog.NewJSONHandler(os.Stderr, nil)
 	logger := slog.New(handler)
 
-	lis, err := net.Listen("tcp", ":9001")
+	lis, err := net.Listen("tcp", listenAddr)
 	if err != nil {
 		slog.Error("не удалось запустить listener", "error", err)
 	}
 
 	s := grpc.NewServer()
 	pb.RegisterForgeServer(s, &forgeServer{logger: logger})
-	slog.Info("дemon 'forged' запущен на порту :9001")
+	logger.Info("дemon 'forged' запущен на порту", "listenAddr", listenAddr)
 	if err := s.Serve(lis); err != nil {
-		slog.Error("ошибка gRPC сервера", "error", err)
+		logger.Error("ошибка gRPC сервера", "error", err)
 	}
 
 	return &forgeServer{logger: logger}

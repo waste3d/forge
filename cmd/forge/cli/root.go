@@ -5,23 +5,25 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"os/exec"
 	"time"
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
+	"github.com/waste3d/forge/internal/constants"
 	pb "github.com/waste3d/forge/internal/gen/proto"
 )
 
 const (
-	daemonAddress = "localhost:9001"
-	version       = "v0.1.0"
+	version = "v0.1.0"
 )
 
 var (
-	infoLog    = color.New(color.FgYellow).Printf
-	successLog = color.New(color.FgGreen).Printf
-	errorLog   = color.New(color.FgRed).Fprintf
+	infoLog       = color.New(color.FgYellow).Printf
+	successLog    = color.New(color.FgGreen).Printf
+	errorLog      = color.New(color.FgRed).Fprintf
+	daemonAddress string
 )
 
 var rootCmd = &cobra.Command{
@@ -85,4 +87,13 @@ func startDaemon() error {
 	}
 	infoLog("Демон 'forged' запущен с PID: %d. Он будет работать в фоне.\n", cmd.Process.Pid)
 	return nil
+}
+
+func init() {
+	defaultAddr := os.Getenv(constants.DaemonAddrEnvVar)
+	if defaultAddr == "" {
+		defaultAddr = constants.DefaultDemonAddress
+	}
+
+	rootCmd.PersistentFlags().StringVarP(&daemonAddress, "daemon-addr", "a", defaultAddr, "адрес для соединения с демоном")
 }
