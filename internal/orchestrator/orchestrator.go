@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath" // Добавлен для работы с путями
-	"sync"
 	"time"
 
 	"github.com/docker/docker/api/types"
@@ -22,6 +22,7 @@ import (
 	"github.com/waste3d/forge/internal/parser"
 	"github.com/waste3d/forge/internal/state"
 	pb "github.com/waste3d/forge/proto"
+	"golang.org/x/sync/errgroup"
 )
 
 type Orchestrator struct {
@@ -29,9 +30,10 @@ type Orchestrator struct {
 	appName      string
 	stream       pb.Forge_UpServer
 	stateManager *state.Manager
+	logger       *slog.Logger
 }
 
-func New(appName string, stream pb.Forge_UpServer) (*Orchestrator, error) {
+func New(appName string, stream pb.Forge_UpServer, logger *slog.Logger) (*Orchestrator, error) {
 	cli, err := client.NewClientWithOpts(client.FromEnv)
 	if err != nil {
 		return nil, fmt.Errorf("ошибка создания клиента Docker: %v", err)
@@ -47,6 +49,7 @@ func New(appName string, stream pb.Forge_UpServer) (*Orchestrator, error) {
 		appName:      appName,
 		stream:       stream,
 		stateManager: sm,
+		logger:       logger.With("appName", appName),
 	}, nil
 }
 
@@ -56,59 +59,130 @@ func (o *Orchestrator) Up(ctx context.Context, config *parser.Config) error {
 
 	networkResp, err := o.dockerClient.NetworkCreate(ctx, networkName, types.NetworkCreate{})
 	if err != nil {
+		o.logger.Error("не удалось создать сеть %s", "error", err)
 		return fmt.Errorf("не удалось создать сеть %s: %w", networkName, err)
 	}
+
 	networkID := networkResp.ID
 	if err := o.stateManager.AddResource(o.appName, "network", networkID); err != nil {
 		o.dockerClient.NetworkRemove(ctx, networkID)
 		return fmt.Errorf("критическая ошибка: не удалось сохранить состояние для сети %s: %w", networkID, err)
 	}
-	o.sendLog("forged-daemon", fmt.Sprintf("Сеть %s создана.", networkName))
 
-	var wg sync.WaitGroup
+	o.sendLog("forged-daemon", fmt.Sprintf("Сеть %s создана.", networkName))
+	o.logger.Info("сеть успешно создана", "networkName", networkName, "networkID", networkID)
+
+	g, gCtx := errgroup.WithContext(ctx)
 
 	for _, dbConfig := range config.Databases {
-		wg.Add(1)
-		go func(dbConfig parser.DBConfig) {
-			defer wg.Done()
-			if err := o.startDatabase(ctx, &dbConfig, networkID); err != nil {
-				o.sendLog(dbConfig.Name, fmt.Sprintf("Ошибка запуска базы данных: %v", err))
+		dbConfig := dbConfig
+		g.Go(func() error {
+			err := o.startDatabase(gCtx, &dbConfig, networkID)
+			if err != nil {
+				o.logger.Error("ошибка запуска базы данных", "dbName", dbConfig.Name, "error", err)
+				o.sendLog(dbConfig.Name, fmt.Sprintf("Ошибка запуска: %v", err))
 			}
-		}(dbConfig)
+			return err
+		})
 	}
 
 	for _, serviceConfig := range config.Services {
-		wg.Add(1)
-		go func(serviceConfig parser.ServiceConfig) {
-			defer wg.Done()
-			if err := o.startService(ctx, &serviceConfig, networkID); err != nil {
-				o.sendLog(serviceConfig.Name, fmt.Sprintf("Ошибка запуска сервиса: %v", err))
+		serviceConfig := serviceConfig
+
+		g.Go(func() error {
+			err := o.startService(gCtx, &serviceConfig, networkID)
+			if err != nil {
+				o.logger.Error("ошибка запуска сервиса", "serviceName", serviceConfig.Name, "error", err)
+				o.sendLog(serviceConfig.Name, fmt.Sprintf("Ошибка запуска: %v", err))
 			}
-		}(serviceConfig)
+			return err
+		})
 	}
 
-	wg.Wait()
-	return nil
+	o.logger.Info("ожидание завершения всех сервисов и баз данных...")
+	return g.Wait()
 }
 
+// Down останавливает и удаляет все ресурсы, связанные с приложением.
 func (o *Orchestrator) Down(ctx context.Context, appName string) error {
-	// ... (без изменений)
-	log.Printf("Начинаю процедуру Down для приложения '%s'...", appName)
+	o.logger.Info("начинаю процедуру Down", "appName", appName)
+
 	resources, err := o.stateManager.GetResourceByApp(appName)
 	if err != nil {
+		o.logger.Error("не удалось получить ресурсы из state manager", "error", err)
 		return fmt.Errorf("не удалось получить ресурсы: %w", err)
 	}
+
 	if len(resources) == 0 {
-		log.Printf("Нет ресурсов для приложения '%s'", appName)
+		o.logger.Warn("не найдено ресурсов для приложения. процедура Down завершена.", "appName", appName)
 		return nil
 	}
-	// ... остальной код Down без изменений ...
+
+	g, _ := errgroup.WithContext(ctx)
+	var networkIDs []string
+
+	for _, res := range resources {
+		res := res
+		switch res.ResourceType {
+		case "container":
+			g.Go(func() error {
+				o.logger.Info("остановка и удаление контейнера", "containerID", res.ID)
+
+				timeout := 30
+				if err := o.dockerClient.ContainerStop(context.Background(), res.ID, container.StopOptions{Timeout: &timeout}); err != nil {
+					if !client.IsErrNotFound(err) {
+						o.logger.Error("не удалось остановить контейнер", "containerID", res.ID, "error", err)
+						return err
+					}
+					o.logger.Warn("контейнер не найден, возможно, был удален ранее", "containerID", res.ID)
+				}
+
+				if err := o.dockerClient.ContainerRemove(context.Background(), res.ID, container.RemoveOptions{Force: true}); err != nil {
+					if !client.IsErrNotFound(err) {
+						o.logger.Error("не удалось удалить контейнер", "containerID", res.ID, "error", err)
+						return err
+					}
+				}
+
+				if err := o.stateManager.RemoveResource(res.ID); err != nil {
+					o.logger.Error("не удалось удалить ресурс из состояния", "resourceID", res.ID, "error", err)
+					return err
+				}
+
+				o.logger.Info("контейнер успешно удален", "containerID", res.ID)
+				return nil
+			})
+
+		case "network":
+			networkIDs = append(networkIDs, res.ID)
+		}
+	}
+
+	if err := g.Wait(); err != nil {
+		return fmt.Errorf("произошла ошибка при удалении контейнеров: %w", err)
+	}
+
+	for _, netID := range networkIDs {
+		o.logger.Info("удаление сети", "networkID", netID)
+		if err := o.dockerClient.NetworkRemove(context.Background(), netID); err != nil {
+			if !client.IsErrNotFound(err) {
+				o.logger.Error("не удалось удалить сеть", "networkID", netID, "error", err)
+			}
+		}
+
+		if err := o.stateManager.RemoveResource(netID); err != nil {
+			o.logger.Error("не удалось удалить ресурс сети из состояния", "resourceID", netID, "error", err)
+		}
+		o.logger.Info("сеть успешно удалена", "networkID", netID)
+	}
+
+	o.logger.Info("процедура Down успешно завершена", "appName", appName)
 	return nil
 }
 
 func (o *Orchestrator) startDatabase(ctx context.Context, dbConfig *parser.DBConfig, networkID string) error {
-	// ... (без изменений)
 	o.sendLog(dbConfig.Name, "Starting database...")
+	o.logger.Info("запуск базы данных", "dbName", dbConfig.Name, "type", dbConfig.Type, "version", dbConfig.Version)
 
 	if dbConfig.Type == "" || dbConfig.Version == "" {
 		return fmt.Errorf("у базы данных '%s' должны быть указаны 'type' и 'version'", dbConfig.Name)

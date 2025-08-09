@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
+	"os"
 	"time"
 
 	"github.com/waste3d/forge/internal/orchestrator"
@@ -18,24 +20,32 @@ import (
 
 type forgeServer struct {
 	pb.UnimplementedForgeServer
+	logger *slog.Logger
 }
 
 func (s *forgeServer) Up(req *pb.UpRequest, stream pb.Forge_UpServer) error {
-	log.Println("Получен Up-запрос...")
+	s.logger.Info("получен Up-запрос")
 
 	config, err := parser.Parse([]byte(req.GetConfigContent()))
 	if err != nil {
+		s.logger.Error("ошибка парсинга forge.yaml", "error", err)
 		return status.Errorf(codes.InvalidArgument, "ошибка парсинга forge.yaml: %v", err)
 	}
 
 	if config.Version != 1 {
-		return status.Errorf(codes.InvalidArgument, "неподдерживаемая версия конфигурации: %d", config.Version)
+		err := fmt.Errorf("неподдерживаемая версия конфигурации: %d", config.Version)
+		s.logger.Error("неверная версия конфига", "version", config.Version)
+		return status.Error(codes.InvalidArgument, err.Error())
 	}
+
 	if config.AppName == "" {
-		return status.Errorf(codes.InvalidArgument, "в файле forge.yaml не указано обязательное поле 'appName'")
+		err := errors.New("в файле forge.yaml не указано обязательное поле 'appName'")
+		s.logger.Error(err.Error())
+		return status.Error(codes.InvalidArgument, err.Error())
 	}
+
 	appName := config.AppName
-	log.Printf("Конфигурация для '%s' проверена.", appName)
+	s.logger.Info("конфигурация проверена", "appName", appName)
 
 	stream.Send(&pb.LogEntry{
 		ServiceName: "forged-daemon",
@@ -49,56 +59,62 @@ func (s *forgeServer) Up(req *pb.UpRequest, stream pb.Forge_UpServer) error {
 		Message:     "Начинаю оркестрацию...",
 	})
 
-	orch, err := orchestrator.New(appName, stream)
+	orch, err := orchestrator.New(appName, stream, s.logger)
 	if err != nil {
-		log.Printf("Критическая ошибка инициализации оркестратора: %v", err)
+		s.logger.Error("критическая ошибка инициализации оркестратора", "error", err)
 		return status.Errorf(codes.Internal, "ошибка инициализации: %v", err)
 	}
 
 	err = orch.Up(context.Background(), config)
 	if err != nil {
-		log.Printf("Оркестрация для '%s' провалилась: %v", appName, err)
+		s.logger.Error("ошибка выполнения оркестрации", "appName", appName, "error", err)
 		return status.Errorf(codes.Internal, "ошибка выполнения оркестрации: %v", err)
 	}
 
-	log.Printf("Оркестрация для '%s' успешно завершена.", appName)
+	s.logger.Info("оркестрация успешно завершена", "appName", appName)
 	return nil
 }
 
 func (s *forgeServer) Down(ctx context.Context, req *pb.DownRequest) (*pb.DownResponse, error) {
 	appName := req.GetAppName()
-	log.Printf("Получен Down-запрос для приложения '%s'...", appName)
+	s.logger.Info("получен Down-запрос", "appName", appName)
 
 	if appName == "" {
 		return nil, status.Errorf(codes.InvalidArgument, "в запросе не указано обязательное поле 'appName'")
 	}
 
-	orch, err := orchestrator.New(appName, nil)
+	orch, err := orchestrator.New(appName, nil, s.logger)
 	if err != nil {
+		s.logger.Error("критическая ошибка инициализации оркестратора", "error", err)
 		return nil, status.Errorf(codes.Internal, "ошибка инициализации оркестратора: %v", err)
 	}
 
 	err = orch.Down(ctx, appName)
 	if err != nil {
+		s.logger.Error("ошибка выполнения Down", "appName", appName, "error", err)
 		return nil, status.Errorf(codes.Internal, "ошибка выполнения оркестрации: %v", err)
 	}
 
-	log.Printf("Процедура Down для приложения '%s' успешно завершена", appName)
+	s.logger.Info("процедура Down успешно завершена", "appName", appName)
 	return &pb.DownResponse{
 		Message: fmt.Sprintf("Процедура Down для приложения '%s' успешно завершена", appName),
 	}, nil
 }
 
 func main() {
+
+	handler := slog.NewJSONHandler(os.Stderr, nil)
+	logger := slog.New(handler)
+
 	lis, err := net.Listen("tcp", ":9001")
 	if err != nil {
-		log.Fatalf("Не удалось запустить listener: %v", err)
+		slog.Error("не удалось запустить listener", "error", err)
 	}
 
 	s := grpc.NewServer()
-	pb.RegisterForgeServer(s, &forgeServer{})
-	log.Println("Демон 'forged' запущен на порту :9001...")
+	pb.RegisterForgeServer(s, &forgeServer{logger: logger})
+	slog.Info("дemon 'forged' запущен на порту :9001")
 	if err := s.Serve(lis); err != nil {
-		log.Fatalf("Ошибка gRPC сервера: %v", err)
+		slog.Error("ошибка gRPC сервера", "error", err)
 	}
 }
