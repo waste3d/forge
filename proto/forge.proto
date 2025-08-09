@@ -10,6 +10,15 @@ service Forge {
 
     // Остановка среды и ее удаленние
     rpc Down(DownRequest) returns (DownResponse);
+
+    // Получение логов
+    rpc Logs(LogRequest) returns (stream LogEntry);
+}   
+
+message LogRequest {
+    string app_name = 1;
+    string service_name = 2;
+    bool follow = 3;
 }
 
 message UpRequest {

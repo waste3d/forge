@@ -21,6 +21,7 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	Forge_Up_FullMethodName   = "/forge.Forge/Up"
 	Forge_Down_FullMethodName = "/forge.Forge/Down"
+	Forge_Logs_FullMethodName = "/forge.Forge/Logs"
 )
 
 // ForgeClient is the client API for Forge service.
@@ -31,6 +32,8 @@ type ForgeClient interface {
 	Up(ctx context.Context, in *UpRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[LogEntry], error)
 	// Остановка среды и ее удаленние
 	Down(ctx context.Context, in *DownRequest, opts ...grpc.CallOption) (*DownResponse, error)
+	// Получение логов
+	Logs(ctx context.Context, in *LogRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[LogEntry], error)
 }
 
 type forgeClient struct {
@@ -70,6 +73,25 @@ func (c *forgeClient) Down(ctx context.Context, in *DownRequest, opts ...grpc.Ca
 	return out, nil
 }
 
+func (c *forgeClient) Logs(ctx context.Context, in *LogRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[LogEntry], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &Forge_ServiceDesc.Streams[1], Forge_Logs_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[LogRequest, LogEntry]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type Forge_LogsClient = grpc.ServerStreamingClient[LogEntry]
+
 // ForgeServer is the server API for Forge service.
 // All implementations must embed UnimplementedForgeServer
 // for forward compatibility.
@@ -78,6 +100,8 @@ type ForgeServer interface {
 	Up(*UpRequest, grpc.ServerStreamingServer[LogEntry]) error
 	// Остановка среды и ее удаленние
 	Down(context.Context, *DownRequest) (*DownResponse, error)
+	// Получение логов
+	Logs(*LogRequest, grpc.ServerStreamingServer[LogEntry]) error
 	mustEmbedUnimplementedForgeServer()
 }
 
@@ -93,6 +117,9 @@ func (UnimplementedForgeServer) Up(*UpRequest, grpc.ServerStreamingServer[LogEnt
 }
 func (UnimplementedForgeServer) Down(context.Context, *DownRequest) (*DownResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Down not implemented")
+}
+func (UnimplementedForgeServer) Logs(*LogRequest, grpc.ServerStreamingServer[LogEntry]) error {
+	return status.Errorf(codes.Unimplemented, "method Logs not implemented")
 }
 func (UnimplementedForgeServer) mustEmbedUnimplementedForgeServer() {}
 func (UnimplementedForgeServer) testEmbeddedByValue()               {}
@@ -144,6 +171,17 @@ func _Forge_Down_Handler(srv interface{}, ctx context.Context, dec func(interfac
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Forge_Logs_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(LogRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(ForgeServer).Logs(m, &grpc.GenericServerStream[LogRequest, LogEntry]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type Forge_LogsServer = grpc.ServerStreamingServer[LogEntry]
+
 // Forge_ServiceDesc is the grpc.ServiceDesc for Forge service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -160,6 +198,11 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "Up",
 			Handler:       _Forge_Up_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "Logs",
+			Handler:       _Forge_Logs_Handler,
 			ServerStreams: true,
 		},
 	},
