@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"log/slog" // Добавлен для работы с путями
+	"net"
 	"time"
 
 	"github.com/docker/docker/api/types"
@@ -246,6 +247,41 @@ func (o *Orchestrator) Logs(ctx context.Context, serviceName string, follow bool
 	}
 
 	return g.Wait()
+}
+
+func (o *Orchestrator) healthCheckPort(ctx context.Context, serviceName string, port int) error {
+	if port == 0 {
+		o.sendLog(serviceName, "Проверка готовности пропущена: порт не указан.")
+		return nil
+	}
+
+	o.sendLog(serviceName, fmt.Sprintf("Проверка готовности на порту %d...", port))
+
+	timeout := 10 * time.Second
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	address := fmt.Sprintf("%s:%d", serviceName, port)
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("сервис '%s' не стал доступен по таймауту", serviceName)
+		case <-ticker.C:
+			conn, err := net.DialTimeout("tcp", address, 1*time.Second)
+			if err == nil {
+				conn.Close()
+				o.sendLog(serviceName, "Сервис считается готовым.")
+				return nil
+			}
+			o.sendLog(serviceName, fmt.Sprintf("Сервис запущен, ожидаем стабилизации... (%v)", err))
+			time.Sleep(5 * time.Second)
+		}
+
+	}
+
 }
 
 func (o *Orchestrator) sendLog(serviceName, message string) {
