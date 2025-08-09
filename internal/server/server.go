@@ -79,7 +79,7 @@ func (s *forgeServer) Up(req *pb.UpRequest, stream pb.Forge_UpServer) error {
 		Message:     "Начинаю оркестрацию...",
 	})
 
-	orch, err := orchestrator.New(appName, stream, s.logger)
+	orch, err := orchestrator.New(appName, stream, s.logger, sm)
 	if err != nil {
 		s.logger.Error("критическая ошибка инициализации оркестратора", "error", err)
 		return status.Errorf(codes.Internal, "ошибка инициализации: %v", err)
@@ -103,7 +103,14 @@ func (s *forgeServer) Down(ctx context.Context, req *pb.DownRequest) (*pb.DownRe
 		return nil, status.Errorf(codes.InvalidArgument, "в запросе не указано обязательное поле 'appName'")
 	}
 
-	orch, err := orchestrator.New(appName, nil, s.logger)
+	sm, err := state.NewManager()
+	if err != nil {
+		s.logger.Error("критическая ошибка инициализации state manager", "error", err)
+		return nil, status.Errorf(codes.Internal, "ошибка инициализации state manager: %v", err)
+	}
+	defer sm.Close()
+
+	orch, err := orchestrator.New(appName, nil, s.logger, sm)
 	if err != nil {
 		s.logger.Error("критическая ошибка инициализации оркестратора", "error", err)
 		return nil, status.Errorf(codes.Internal, "ошибка инициализации оркестратора: %v", err)
@@ -127,9 +134,16 @@ func (s *forgeServer) Logs(req *pb.LogRequest, stream pb.Forge_LogsServer) error
 	serviceName := req.GetServiceName()
 	follow := req.GetFollow()
 
+	sm, err := state.NewManager()
+	if err != nil {
+		s.logger.Error("критическая ошибка инициализации state manager", "error", err)
+		return status.Errorf(codes.Internal, "ошибка инициализации state manager: %v", err)
+	}
+	defer sm.Close()
+
 	s.logger.Info("получен Logs-запрос", "appName", appName, "serviceName", serviceName, "follow", follow)
 
-	orch, err := orchestrator.New(appName, stream, s.logger)
+	orch, err := orchestrator.New(appName, stream, s.logger, sm)
 	if err != nil {
 		s.logger.Error("критическая ошибка инициализации оркестратора", "error", err)
 		return status.Errorf(codes.Internal, "ошибка инициализации оркестратора: %v", err)

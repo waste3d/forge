@@ -29,15 +29,10 @@ type Orchestrator struct {
 	logger       *slog.Logger
 }
 
-func New(appName string, stream pb.Forge_UpServer, logger *slog.Logger) (*Orchestrator, error) {
+func New(appName string, stream pb.Forge_UpServer, logger *slog.Logger, sm *state.Manager) (*Orchestrator, error) {
 	cli, err := client.NewClientWithOpts(client.FromEnv)
 	if err != nil {
 		return nil, fmt.Errorf("ошибка создания клиента Docker: %v", err)
-	}
-
-	sm, err := state.NewManager()
-	if err != nil {
-		return nil, fmt.Errorf("ошибка создания менеджера состояния: %v", err)
 	}
 
 	return &Orchestrator{
@@ -185,6 +180,8 @@ func (o *Orchestrator) Logs(ctx context.Context, serviceName string, follow bool
 
 	g, gCtx := errgroup.WithContext(ctx)
 
+	var matchFound bool
+
 	for _, res := range resources {
 		if res.ResourceType != "container" {
 			continue
@@ -193,6 +190,8 @@ func (o *Orchestrator) Logs(ctx context.Context, serviceName string, follow bool
 		if serviceName != "" && res.ServiceName != serviceName {
 			continue
 		}
+
+		matchFound = true
 
 		res := res
 
@@ -236,6 +235,13 @@ func (o *Orchestrator) Logs(ctx context.Context, serviceName string, follow bool
 			}
 
 			return scanner.Err()
+		})
+	}
+	if serviceName != "" && !matchFound {
+		o.logger.Warn("сервис не найден", "serviceName", serviceName)
+		stream.Send(&pb.LogEntry{
+			ServiceName: "forged-daemon",
+			Message:     fmt.Sprintf("Ошибка: сервис с именем '%s' не найден в приложении '%s'.", serviceName, o.appName),
 		})
 	}
 
