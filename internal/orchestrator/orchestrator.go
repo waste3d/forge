@@ -61,38 +61,46 @@ func (o *Orchestrator) Up(ctx context.Context, config *parser.Config) error {
 		return fmt.Errorf("критическая ошибка: не удалось сохранить состояние для сети %s: %w", networkID, err)
 	}
 
+	var allNodes []Node
+	for i := range config.Databases {
+		allNodes = append(allNodes, &DBNode{&config.Databases[i], config.Databases[i].Port})
+	}
+
+	for i := range config.Services {
+		allNodes = append(allNodes, &ServiceNode{&config.Services[i], config.Services[i].Port})
+	}
+
+	sortedNodes, err := Sort(allNodes)
+	if err != nil {
+		o.logger.Error("не удалось отсортировать узлы", "error", err)
+		return fmt.Errorf("не удалось отсортировать узлы: %w", err)
+	}
+
+	for _, node := range sortedNodes {
+		nodeName := node.GetName()
+		o.sendLog("forged-daemon", fmt.Sprintf("Запуск %s...", nodeName))
+
+		if err := node.Start(ctx, networkID, o); err != nil {
+			o.logger.Error("ошибка запуска узла", "nodeName", nodeName, "error", err)
+			o.sendLog(nodeName, fmt.Sprintf("Ошибка запуска: %v", err))
+			return fmt.Errorf("ошибка запуска узла %s: %w", nodeName, err)
+		}
+
+		if err := node.IsReady(ctx, o); err != nil {
+			o.logger.Error("ошибка проверки готовности узла", "nodeName", nodeName, "error", err)
+			o.sendLog(nodeName, fmt.Sprintf("Ошибка проверки готовности: %v", err))
+			return fmt.Errorf("ошибка проверки готовности узла %s: %w", nodeName, err)
+		}
+
+		o.logger.Info("узел успешно запущен и готов", "nodeName", nodeName)
+
+		o.sendLog(nodeName, "Узел успешно запущен и готов.")
+	}
+
 	o.sendLog("forged-daemon", fmt.Sprintf("Сеть %s создана.", networkName))
 	o.logger.Info("сеть успешно создана", "networkName", networkName, "networkID", networkID)
 
-	g, gCtx := errgroup.WithContext(ctx)
-
-	for _, dbConfig := range config.Databases {
-		dbConfig := dbConfig
-		g.Go(func() error {
-			err := o.startDatabase(gCtx, &dbConfig, networkID)
-			if err != nil {
-				o.logger.Error("ошибка запуска базы данных", "dbName", dbConfig.Name, "error", err)
-				o.sendLog(dbConfig.Name, fmt.Sprintf("Ошибка запуска: %v", err))
-			}
-			return err
-		})
-	}
-
-	for _, serviceConfig := range config.Services {
-		serviceConfig := serviceConfig
-
-		g.Go(func() error {
-			err := o.startService(gCtx, &serviceConfig, networkID)
-			if err != nil {
-				o.logger.Error("ошибка запуска сервиса", "serviceName", serviceConfig.Name, "error", err)
-				o.sendLog(serviceConfig.Name, fmt.Sprintf("Ошибка запуска: %v", err))
-			}
-			return err
-		})
-	}
-
-	o.logger.Info("ожидание завершения всех сервисов и баз данных...")
-	return g.Wait()
+	return nil
 }
 
 // Down останавливает и удаляет все ресурсы, связанные с приложением.
@@ -261,7 +269,7 @@ func (o *Orchestrator) healthCheckPort(ctx context.Context, serviceName string, 
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	address := fmt.Sprintf("%s:%d", serviceName, port)
+	address := fmt.Sprintf("localhost:%d", port)
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
@@ -270,16 +278,17 @@ func (o *Orchestrator) healthCheckPort(ctx context.Context, serviceName string, 
 		case <-ctx.Done():
 			return fmt.Errorf("сервис '%s' не стал доступен по таймауту", serviceName)
 		case <-ticker.C:
+			// Пытаемся установить соединение с проброшенным портом
 			conn, err := net.DialTimeout("tcp", address, 1*time.Second)
 			if err == nil {
+				// Успех!
 				conn.Close()
-				o.sendLog(serviceName, "Сервис считается готовым.")
+				o.sendLog(serviceName, fmt.Sprintf("Сервис готов и отвечает на порту %d.", port))
 				return nil
 			}
-			o.sendLog(serviceName, fmt.Sprintf("Сервис запущен, ожидаем стабилизации... (%v)", err))
-			time.Sleep(5 * time.Second)
+			// Логируем попытку для отладки, но не спамим в основной лог
+			o.logger.Debug("попытка health check не удалась", "service", serviceName, "addr", address, "error", err)
 		}
-
 	}
 
 }
