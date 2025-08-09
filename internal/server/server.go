@@ -62,7 +62,7 @@ func (s *forgeServer) Up(req *pb.UpRequest, stream pb.Forge_UpServer) error {
 	if len(existingResources) > 0 {
 		errMsg := fmt.Sprintf("окружение для '%s' уже запущено. Пожалуйста, сначала выполните 'forge down %s'", appName, appName)
 		s.logger.Warn(errMsg)
-		return status.Errorf(codes.AlreadyExists, errMsg)
+		return status.Errorf(codes.AlreadyExists, "%s", errMsg)
 	}
 
 	s.logger.Info("конфигурация проверена", "appName", appName)

@@ -10,12 +10,14 @@ type Config struct {
 
 // ServiceConfig описывает один сервис, например, бэкенд или фронтенд
 type ServiceConfig struct {
-	Name      string   `yaml:"name"`
-	Type      string   `yaml:"type"` // example: go, node, python, etc..
-	Repo      string   `yaml:"repo,omitempty"`
-	Path      string   `yaml:"path,omitempty"`
-	Port      int      `yaml:"port"`
-	DependsOn []string `yaml:"dependsOn,omitempty"`
+	Name         string   `yaml:"name"`
+	Type         string   `yaml:"type"` // example: go, node, python, etc..
+	Repo         string   `yaml:"repo,omitempty"`
+	Path         string   `yaml:"path,omitempty"`
+	Port         int      `yaml:"port"`
+	InternalPort int      `yaml:"internalPort,omitempty"`
+	DependsOn    []string `yaml:"dependsOn,omitempty"`
+	Env          []string `yaml:"env,omitempty"`
 }
 
 // DBConfig описывает одну базу данных
@@ -25,5 +27,6 @@ type DBConfig struct {
 	Version      string   `yaml:"version"`
 	Port         int      `yaml:"port"`
 	InternalPort int      `yaml:"internalPort"`
-	Env          []string `yaml:"env"`
+	DependsOn    []string `yaml:"dependsOn,omitempty"`
+	Env          []string `yaml:"env,omitempty"`
 }

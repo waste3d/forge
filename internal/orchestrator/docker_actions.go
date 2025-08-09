@@ -6,6 +6,7 @@ import (
 	"archive/tar"
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -19,6 +20,18 @@ import (
 	"github.com/google/uuid"
 	"github.com/waste3d/forge/pkg/parser"
 )
+
+type DockerBuildResponse struct {
+	Stream      string      `json:"stream"`
+	Error       string      `json:"error"`
+	ErrorDetail ErrorDetail `json:"errorDetail"`
+}
+
+type ErrorDetail struct {
+	Message string `json:"message"`
+}
+
+var buildError error
 
 func (o *Orchestrator) startDatabase(ctx context.Context, dbConfig *parser.DBConfig, networkID string) error {
 	o.sendLog(dbConfig.Name, "Starting database...")
@@ -150,6 +163,7 @@ func (o *Orchestrator) startService(ctx context.Context, serviceConfig *parser.S
 		Tags:       []string{imageTag},
 		Remove:     true,
 	})
+
 	if err != nil {
 		return fmt.Errorf("ошибка при запуске сборки образа: %w", err)
 	}
@@ -157,24 +171,46 @@ func (o *Orchestrator) startService(ctx context.Context, serviceConfig *parser.S
 
 	scanner := bufio.NewScanner(buildResp.Body)
 	for scanner.Scan() {
-		o.sendLog(serviceConfig.Name, scanner.Text())
+		live := scanner.Bytes()
+		var respLine DockerBuildResponse
+
+		if err := json.Unmarshal(live, &respLine); err != nil {
+			o.sendLog(serviceConfig.Name, scanner.Text())
+			continue
+		}
+
+		if respLine.Stream != "" {
+			o.sendLog(serviceConfig.Name, respLine.Stream)
+		}
+
+		if respLine.Error != "" {
+			buildError = fmt.Errorf("ошибка сборки образа: %s", respLine.ErrorDetail.Message)
+		}
+
 	}
+
 	if err := scanner.Err(); err != nil {
 		o.sendLog(serviceConfig.Name, fmt.Sprintf("Ошибка чтения логов сборки: %v", err))
 	}
+
+	if buildError != nil {
+		o.sendLog(serviceConfig.Name, buildError.Error())
+		return buildError
+	}
+
 	o.sendLog(serviceConfig.Name, "Образ успешно собран.")
 
 	// --- 3. Запускаем контейнер ---
 	containerName := fmt.Sprintf("%s-%s-service", serviceConfig.Name, uuid.New().String())
 	portMap := nat.PortMap{}
 	if serviceConfig.Port > 0 {
-		portMap[nat.Port(fmt.Sprintf("%d/tcp", serviceConfig.Port))] = []nat.PortBinding{
+		portMap[nat.Port(fmt.Sprintf("%d/tcp", serviceConfig.InternalPort))] = []nat.PortBinding{
 			{HostIP: "0.0.0.0", HostPort: fmt.Sprintf("%d", serviceConfig.Port)},
 		}
 	}
 
 	resp, err := o.dockerClient.ContainerCreate(ctx,
-		&container.Config{Image: imageTag},
+		&container.Config{Image: imageTag, Env: serviceConfig.Env},
 		&container.HostConfig{PortBindings: portMap},
 		&network.NetworkingConfig{
 			EndpointsConfig: map[string]*network.EndpointSettings{
