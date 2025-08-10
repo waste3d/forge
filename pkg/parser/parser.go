@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"errors"
 	"fmt"
 
 	"gopkg.in/yaml.v3"
@@ -8,6 +9,10 @@ import (
 
 func Parse(content []byte) (*Config, error) {
 	var config Config
+
+	if len(content) == 0 {
+		return nil, errors.New("содержимое конфигурации не может быть пустым")
+	}
 
 	err := yaml.Unmarshal(content, &config)
 	if err != nil {
