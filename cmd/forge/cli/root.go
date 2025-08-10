@@ -15,10 +15,6 @@ import (
 	pb "github.com/waste3d/forge/internal/gen/proto"
 )
 
-const (
-	version = "v0.1.0"
-)
-
 var (
 	infoLog       = color.New(color.FgYellow).Printf
 	successLog    = color.New(color.FgGreen).Printf
