@@ -5,18 +5,19 @@ import (
 	"fmt"
 	"os"
 	"text/tabwriter"
+	"time"
 
+	"github.com/docker/go-units"
 	"github.com/spf13/cobra"
 	pb "github.com/waste3d/forge/internal/gen/proto"
-	"github.com/waste3d/forge/pkg/parser"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
 var psCmd = &cobra.Command{
 	Use:   "ps [appName]",
-	Short: "Показывает статус запущенных сервисов окружения",
-	Long:  "Показывает статус запущенных сервисов для указанного appName. Если appName не указан, пытается найти forge.yaml в текущей директории.",
+	Short: "Показывает статус запущенных сервисов",
+	Long:  "Показывает статус запущенных сервисов. Если [appName] не указан, показывает сервисы для всех приложений.",
 	Args:  cobra.RangeArgs(0, 1),
 	Run:   runPs,
 }
@@ -29,24 +30,6 @@ func runPs(cmd *cobra.Command, args []string) {
 	var appName string
 	if len(args) > 0 {
 		appName = args[0]
-	} else {
-		// Пытаемся получить appName из локального forge.yaml
-		content, err := os.ReadFile("forge.yaml")
-		if err != nil {
-			errorLog(os.Stderr, "\n❌ Ошибка: не указан appName и не найден forge.yaml в текущей директории.\n")
-			os.Exit(1)
-		}
-		config, err := parser.Parse(content)
-		if err != nil {
-			errorLog(os.Stderr, "\n❌ Ошибка парсинга forge.yaml: %v\n", err)
-			os.Exit(1)
-		}
-		appName = config.AppName
-	}
-
-	if appName == "" {
-		errorLog(os.Stderr, "\n❌ Не удалось определить имя приложения (appName).\n")
-		os.Exit(1)
 	}
 
 	if err := runPsLogic(cmd.Context(), appName); err != nil {
@@ -71,16 +54,25 @@ func runPsLogic(ctx context.Context, appName string) error {
 	}
 
 	if len(resp.GetServices()) == 0 {
-		infoLog("Для приложения '%s' не найдено запущенных ресурсов.\n", appName)
+		if appName != "" {
+			infoLog("Для приложения '%s' не найдено запущенных ресурсов.\n", appName)
+		} else {
+			infoLog("Не найдено запущенных ресурсов.\n")
+		}
 		return nil
 	}
 
-	// Используем tabwriter для красивого форматирования таблицы
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-	fmt.Fprintln(w, "NAME\tID\tSTATUS\tPORTS")
+	fmt.Fprintln(w, "APP NAME\tNAME\tSTATUS\tAGE\tPORTS")
 
 	for _, s := range resp.GetServices() {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", s.ServiceName, s.ResourceId, s.Status, s.Ports)
+		age := "N/A"
+		createdTime, err := time.Parse(time.RFC3339, s.Created)
+		if err == nil {
+			age = units.HumanDuration(time.Since(createdTime))
+		}
+
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", s.GetAppName(), s.GetServiceName(), s.GetStatus(), age, s.GetPorts())
 	}
 
 	return w.Flush()

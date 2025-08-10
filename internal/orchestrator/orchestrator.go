@@ -298,9 +298,16 @@ func (o *Orchestrator) healthCheckPort(ctx context.Context, serviceName string, 
 func (o *Orchestrator) Status(ctx context.Context, appName string) ([]*pb.ServiceStatus, error) {
 	o.logger.Info("получение статуса для приложения", "appName", appName)
 
-	resources, err := o.stateManager.GetResourceByApp(appName)
-	if err != nil {
-		return nil, fmt.Errorf("не удалось получить ресурсы из state manager: %w", err)
+	var resources []state.Resource
+	var err error
+
+	if appName == "" {
+		resources, err = o.stateManager.GetAllResources()
+		if err != nil {
+			return nil, fmt.Errorf("не удалось получить ресурсы из state manager: %w", err)
+		}
+	} else {
+		resources, err = o.stateManager.GetResourceByApp(appName)
 	}
 
 	if len(resources) == 0 {
@@ -318,6 +325,7 @@ func (o *Orchestrator) Status(ctx context.Context, appName string) ([]*pb.Servic
 		if err != nil {
 			if client.IsErrNotFound(err) {
 				statuses = append(statuses, &pb.ServiceStatus{
+					AppName:      res.AppName,
 					ServiceName:  res.ServiceName,
 					ResourceType: res.ResourceType,
 					ResourceId:   "not found",
@@ -354,9 +362,11 @@ func (o *Orchestrator) Status(ctx context.Context, appName string) ([]*pb.Servic
 		}
 
 		status := &pb.ServiceStatus{
+			AppName:      res.AppName,
 			ServiceName:  res.ServiceName,
 			ResourceType: res.ResourceType,
 			ResourceId:   inspect.ID[:12],
+			Created:      inspect.Created,
 			Status:       statusString,
 			Ports:        strings.Join(portMappings, ", "),
 		}

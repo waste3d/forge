@@ -79,6 +79,5 @@ func runDownLogic(appName string) error {
 	}
 
 	successLog("Получен ответ от демона: %s\n", resp.GetMessage())
-	successLog("\n✅ Команда 'down' успешно завершена.\n")
 	return nil
 }

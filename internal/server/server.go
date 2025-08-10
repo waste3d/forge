@@ -175,23 +175,22 @@ func (s *forgeServer) Status(ctx context.Context, req *pb.StatusRequest) (*pb.St
 	appName := req.GetAppName()
 	s.logger.Info("получен Status-запрос", "appName", appName)
 
-	if appName == "" {
-		return nil, status.Errorf(codes.InvalidArgument, "в запросе не указано обязательное поле 'appName'")
-	}
-
 	sm, err := state.NewManager()
 	if err != nil {
+		s.logger.Error("критическая ошибка инициализации state manager", "error", err)
 		return nil, status.Errorf(codes.Internal, "ошибка инициализации state manager: %v", err)
 	}
 	defer sm.Close()
 
 	orch, err := orchestrator.New(appName, nil, s.logger, sm)
 	if err != nil {
+		s.logger.Error("критическая ошибка инициализации оркестратора", "error", err)
 		return nil, status.Errorf(codes.Internal, "ошибка инициализации оркестратора: %v", err)
 	}
 
 	serviceStatuses, err := orch.Status(ctx, appName)
 	if err != nil {
+		s.logger.Error("ошибка получения статуса сервисов", "appName", appName, "error", err)
 		return nil, status.Errorf(codes.Internal, "ошибка получения статуса сервисов: %v", err)
 	}
 

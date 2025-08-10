@@ -19,11 +19,13 @@ service Forge {
 }   
 
 message ServiceStatus {
-    string service_name = 1;
-    string resource_type = 2;
-    string resource_id = 3;
-    string status = 4;
-    string ports = 5;
+  string app_name = 1; 
+  string service_name = 2;
+  string resource_type = 3;
+  string resource_id = 4;
+  string status = 5;
+  string ports = 6;
+  string created = 7;
 }
 
 message StatusRequest {

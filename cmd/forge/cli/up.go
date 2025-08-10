@@ -14,25 +14,26 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var bootCmd = &cobra.Command{
-	Use:   "boot",
-	Short: "Запускает демон (если нужно) и поднимает окружение",
-	Run:   runBoot,
+var upCmd = &cobra.Command{
+	Use:   "up",
+	Short: "Создает и запускает окружение из forge.yaml",
+	Long:  "Команда 'up' читает forge.yaml, при необходимости запускает демон 'forged' и разворачивает окружение.",
+	Run:   runUp,
 }
 
 func init() {
-	rootCmd.AddCommand(bootCmd)
+	rootCmd.AddCommand(upCmd)
 }
 
-func runBoot(cmd *cobra.Command, args []string) {
-	if err := runBootLogic(); err != nil {
-		errorLog(os.Stderr, "\n❌ Ошибка выполнения 'boot': %v\n", err)
+func runUp(cmd *cobra.Command, args []string) {
+	if err := runUpLogic(); err != nil {
+		errorLog(os.Stderr, "\n❌ Ошибка выполнения 'up': %v\n", err)
 		os.Exit(1)
 	}
-	successLog("\n✅ Команда 'boot' успешно завершена.\n")
+	successLog("\n✅ Команда 'up' успешно завершена.\n")
 }
 
-func runBootLogic() error {
+func runUpLogic() error {
 	if isDaemonRunning() {
 		infoLog("Демон 'forged' уже запущен.\n")
 	} else {

@@ -20,6 +20,25 @@ type Manager struct {
 	db *sql.DB
 }
 
+func (m *Manager) GetAllResources() ([]Resource, error) {
+	query := "SELECT resource_id, app_name, resource_type, service_name FROM resources"
+	rows, err := m.db.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("не удалось получить ресурсы: %w", err)
+	}
+	defer rows.Close()
+
+	var resources []Resource
+	for rows.Next() {
+		var r Resource
+		if err := rows.Scan(&r.ID, &r.AppName, &r.ResourceType, &r.ServiceName); err != nil {
+			return nil, fmt.Errorf("ошибка сканирования строки ресурса: %w", err)
+		}
+		resources = append(resources, r)
+	}
+	return resources, nil
+}
+
 func (m *Manager) GetResourceByApp(appName string) ([]Resource, error) {
 	query := "SELECT resource_id, app_name, resource_type, service_name FROM resources WHERE app_name = ?"
 	rows, err := m.db.Query(query, appName)
