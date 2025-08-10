@@ -26,7 +26,7 @@ type DBConfig struct {
 	Type         string   `yaml:"type"` // example: "postgres", "redis", "mongo", etc..
 	Version      string   `yaml:"version"`
 	Port         int      `yaml:"port"`
-	InternalPort int      `yaml:"internalPort"`
+	InternalPort int      `yaml:"internalPort,omitempty"`
 	DependsOn    []string `yaml:"dependsOn,omitempty"`
 	Env          []string `yaml:"env,omitempty"`
 }

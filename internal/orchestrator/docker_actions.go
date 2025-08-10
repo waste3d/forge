@@ -34,13 +34,14 @@ type ErrorDetail struct {
 var buildError error
 
 func (o *Orchestrator) startDatabase(ctx context.Context, dbConfig *parser.DBConfig, networkID string) error {
-	o.sendLog(dbConfig.Name, "Starting database...")
+	o.sendLog(dbConfig.Name, "Starting database service...")
 
 	if dbConfig.Type == "" || dbConfig.Version == "" {
 		return fmt.Errorf("у базы данных '%s' должны быть указаны 'type' и 'version'", dbConfig.Name)
 	}
 	imageName := fmt.Sprintf("%s:%s", dbConfig.Type, dbConfig.Version)
 
+	o.sendLog(dbConfig.Name, fmt.Sprintf("Pulling image %s...", imageName))
 	reader, err := o.dockerClient.ImagePull(ctx, imageName, types.ImagePullOptions{})
 	if err != nil {
 		o.sendLog(dbConfig.Name, fmt.Sprintf("Ошибка при извлечении образа: %v", err))
@@ -49,28 +50,29 @@ func (o *Orchestrator) startDatabase(ctx context.Context, dbConfig *parser.DBCon
 	io.Copy(io.Discard, reader)
 	reader.Close()
 
-	containerName := fmt.Sprintf("%s-%s-db", dbConfig.Name, uuid.New().String())
-
 	containerConfig := &container.Config{
 		Image: imageName,
 		Env:   dbConfig.Env,
 	}
 
-	portMap := nat.PortMap{}
-	if dbConfig.Port > 0 {
-		internalPort := dbConfig.InternalPort
-		if internalPort == 0 && dbConfig.Type == "postgres" {
-			internalPort = 5432
+	hostConfig := &container.HostConfig{}
+
+	if dbConfig.Port > 0 && dbConfig.InternalPort > 0 {
+		o.sendLog(dbConfig.Name, fmt.Sprintf("Mapping host port %d to container port %d", dbConfig.Port, dbConfig.InternalPort))
+
+		hostConfig.PortBindings = nat.PortMap{
+			nat.Port(fmt.Sprintf("%d/tcp", dbConfig.InternalPort)): []nat.PortBinding{
+				{
+					HostIP:   "0.0.0.0",
+					HostPort: fmt.Sprintf("%d", dbConfig.Port),
+				},
+			},
 		}
-		if internalPort > 0 {
-			portMap[nat.Port(fmt.Sprintf("%d/tcp", internalPort))] = []nat.PortBinding{
-				{HostIP: "0.0.0.0", HostPort: fmt.Sprintf("%d", dbConfig.Port)},
-			}
-		}
+	} else if dbConfig.Port > 0 {
+		o.sendLog(dbConfig.Name, fmt.Sprintf("Warning: 'port' %d is specified, but 'internalPort' is not. Port will not be exposed.", dbConfig.Port))
 	}
-	hostConfig := &container.HostConfig{
-		PortBindings: portMap,
-	}
+
+	containerName := fmt.Sprintf("forge-%s-%s-%s", o.appName, dbConfig.Name, uuid.New().String()[:8])
 
 	resp, err := o.dockerClient.ContainerCreate(ctx, containerConfig, hostConfig, &network.NetworkingConfig{
 		EndpointsConfig: map[string]*network.EndpointSettings{
@@ -78,11 +80,11 @@ func (o *Orchestrator) startDatabase(ctx context.Context, dbConfig *parser.DBCon
 		},
 	}, nil, containerName)
 	if err != nil {
-		return err
+		return fmt.Errorf("не удалось создать контейнер для %s: %w", dbConfig.Name, err)
 	}
 
 	if err := o.dockerClient.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
-		return err
+		return fmt.Errorf("не удалось запустить контейнер для %s: %w", dbConfig.Name, err)
 	}
 
 	return o.stateManager.AddResource(o.appName, "container", resp.ID, dbConfig.Name)
