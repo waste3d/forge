@@ -13,7 +13,26 @@ service Forge {
 
     // Получение логов
     rpc Logs(LogRequest) returns (stream LogEntry);
+
+    // Получение статуса сервисов
+    rpc Status(StatusRequest) returns (StatusResponse) {}
 }   
+
+message ServiceStatus {
+    string service_name = 1;
+    string resource_type = 2;
+    string resource_id = 3;
+    string status = 4;
+    string ports = 5;
+}
+
+message StatusRequest {
+    string app_name = 1;
+}
+
+message StatusResponse {
+    repeated ServiceStatus services = 1;
+}
 
 message LogRequest {
     string app_name = 1;

@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             v6.31.1
-// source: proto/forge.proto
+// source: api/proto/forge.proto
 
 package proto
 
@@ -19,9 +19,10 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	Forge_Up_FullMethodName   = "/forge.Forge/Up"
-	Forge_Down_FullMethodName = "/forge.Forge/Down"
-	Forge_Logs_FullMethodName = "/forge.Forge/Logs"
+	Forge_Up_FullMethodName     = "/forge.Forge/Up"
+	Forge_Down_FullMethodName   = "/forge.Forge/Down"
+	Forge_Logs_FullMethodName   = "/forge.Forge/Logs"
+	Forge_Status_FullMethodName = "/forge.Forge/Status"
 )
 
 // ForgeClient is the client API for Forge service.
@@ -34,6 +35,8 @@ type ForgeClient interface {
 	Down(ctx context.Context, in *DownRequest, opts ...grpc.CallOption) (*DownResponse, error)
 	// Получение логов
 	Logs(ctx context.Context, in *LogRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[LogEntry], error)
+	// Получение статуса сервисов
+	Status(ctx context.Context, in *StatusRequest, opts ...grpc.CallOption) (*StatusResponse, error)
 }
 
 type forgeClient struct {
@@ -92,6 +95,16 @@ func (c *forgeClient) Logs(ctx context.Context, in *LogRequest, opts ...grpc.Cal
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type Forge_LogsClient = grpc.ServerStreamingClient[LogEntry]
 
+func (c *forgeClient) Status(ctx context.Context, in *StatusRequest, opts ...grpc.CallOption) (*StatusResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(StatusResponse)
+	err := c.cc.Invoke(ctx, Forge_Status_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ForgeServer is the server API for Forge service.
 // All implementations must embed UnimplementedForgeServer
 // for forward compatibility.
@@ -102,6 +115,8 @@ type ForgeServer interface {
 	Down(context.Context, *DownRequest) (*DownResponse, error)
 	// Получение логов
 	Logs(*LogRequest, grpc.ServerStreamingServer[LogEntry]) error
+	// Получение статуса сервисов
+	Status(context.Context, *StatusRequest) (*StatusResponse, error)
 	mustEmbedUnimplementedForgeServer()
 }
 
@@ -120,6 +135,9 @@ func (UnimplementedForgeServer) Down(context.Context, *DownRequest) (*DownRespon
 }
 func (UnimplementedForgeServer) Logs(*LogRequest, grpc.ServerStreamingServer[LogEntry]) error {
 	return status.Errorf(codes.Unimplemented, "method Logs not implemented")
+}
+func (UnimplementedForgeServer) Status(context.Context, *StatusRequest) (*StatusResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Status not implemented")
 }
 func (UnimplementedForgeServer) mustEmbedUnimplementedForgeServer() {}
 func (UnimplementedForgeServer) testEmbeddedByValue()               {}
@@ -182,6 +200,24 @@ func _Forge_Logs_Handler(srv interface{}, stream grpc.ServerStream) error {
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type Forge_LogsServer = grpc.ServerStreamingServer[LogEntry]
 
+func _Forge_Status_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).Status(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_Status_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).Status(ctx, req.(*StatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Forge_ServiceDesc is the grpc.ServiceDesc for Forge service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -192,6 +228,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Down",
 			Handler:    _Forge_Down_Handler,
+		},
+		{
+			MethodName: "Status",
+			Handler:    _Forge_Status_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{
@@ -206,5 +246,5 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 			ServerStreams: true,
 		},
 	},
-	Metadata: "proto/forge.proto",
+	Metadata: "api/proto/forge.proto",
 }

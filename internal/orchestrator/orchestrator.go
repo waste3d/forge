@@ -10,6 +10,7 @@ import (
 	"log"
 	"log/slog" // Добавлен для работы с путями
 	"net"
+	"strings"
 	"time"
 
 	"github.com/docker/docker/api/types"
@@ -291,6 +292,63 @@ func (o *Orchestrator) healthCheckPort(ctx context.Context, serviceName string, 
 		}
 	}
 
+}
+
+func (o *Orchestrator) Status(ctx context.Context, appName string) ([]*pb.ServiceStatus, error) {
+	o.logger.Info("получение статуса сервисов", "appName", appName)
+
+	resources, err := o.stateManager.GetResourceByApp(appName)
+	if err != nil {
+		o.logger.Error("не удалось получить ресурсы из state manager", "error", err)
+		return nil, fmt.Errorf("не удалось получить ресурсы: %w", err)
+	}
+
+	if len(resources) == 0 {
+		o.logger.Warn("не найдено ресурсов для приложения. статус сервисов не может быть получен.", "appName", appName)
+		return nil, nil
+	}
+
+	var statuses []*pb.ServiceStatus
+
+	for _, res := range resources {
+		if res.ResourceType != "container" {
+			continue // пока в ps показываем только контейнеры
+		}
+
+		inspect, err := o.dockerClient.ContainerInspect(ctx, res.ID)
+		if err != nil {
+			if client.IsErrNotFound(err) {
+				statuses = append(statuses, &pb.ServiceStatus{
+					ServiceName:  res.ServiceName,
+					ResourceType: "container",
+					ResourceId:   "not found",
+					Status:       "Stale (removed outside of Forge)",
+				})
+				continue
+			}
+			o.logger.Error("не удалось получить информацию о контейнере", "containerID", res.ID, "error", err)
+			return nil, fmt.Errorf("не удалось инспектировать контейнер %s: %w", res.ID, err)
+		}
+
+		var portMapping []string
+		for port, bindings := range inspect.NetworkSettings.Ports {
+			if len(bindings) == 0 {
+				mapping := fmt.Sprintf("%s:%s->%s", inspect.NetworkSettings.IPAddress, port, port)
+				portMapping = append(portMapping, mapping)
+			}
+		}
+		status := &pb.ServiceStatus{
+			ServiceName:  res.ServiceName,
+			ResourceType: res.ResourceType,
+			ResourceId:   res.ID,
+			Status:       inspect.State.Status,
+			Ports:        strings.Join(portMapping, ", "),
+		}
+		statuses = append(statuses, status)
+	}
+
+	o.logger.Info("статус сервисов получен", "appName", appName, "statuses", statuses)
+	return statuses, nil
 }
 
 func (o *Orchestrator) sendLog(serviceName, message string) {

@@ -170,3 +170,32 @@ func InitializeServer(listenAddr string) *forgeServer {
 
 	return &forgeServer{logger: logger}
 }
+
+func (s *forgeServer) Status(ctx context.Context, req *pb.StatusRequest) (*pb.StatusResponse, error) {
+	appName := req.GetAppName()
+	s.logger.Info("получен Status-запрос", "appName", appName)
+
+	if appName == "" {
+		return nil, status.Errorf(codes.InvalidArgument, "в запросе не указано обязательное поле 'appName'")
+	}
+
+	sm, err := state.NewManager()
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "ошибка инициализации state manager: %v", err)
+	}
+	defer sm.Close()
+
+	orch, err := orchestrator.New(appName, nil, s.logger, sm)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "ошибка инициализации оркестратора: %v", err)
+	}
+
+	serviceStatuses, err := orch.Status(ctx, appName)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "ошибка получения статуса сервисов: %v", err)
+	}
+
+	return &pb.StatusResponse{
+		Services: serviceStatuses,
+	}, nil
+}
