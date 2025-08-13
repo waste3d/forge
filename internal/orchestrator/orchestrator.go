@@ -22,6 +22,8 @@ import (
 	"github.com/waste3d/forge/internal/state"
 	"github.com/waste3d/forge/pkg/parser"
 	"golang.org/x/sync/errgroup"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type Orchestrator struct {
@@ -255,6 +257,99 @@ func (o *Orchestrator) Logs(ctx context.Context, serviceName string, follow bool
 			Message:     fmt.Sprintf("Ошибка: сервис с именем '%s' не найден в приложении '%s'.", serviceName, o.appName),
 		})
 	}
+
+	return g.Wait()
+}
+
+func (o *Orchestrator) Exec(stream pb.Forge_ExecServer) error {
+	initPlayload, err := stream.Recv()
+	if err != nil {
+		o.logger.Error("не удалось прочитать начальные параметры exec", "error", err)
+		return status.Errorf(codes.InvalidArgument, "не удалось прочитать начальные параметры: %v", err)
+	}
+
+	setup := initPlayload.GetSetup()
+	if setup == nil {
+		return status.Errorf(codes.InvalidArgument, "первое сообщение от клиента должно содержать 'ExecSetup'")
+	}
+
+	appName := setup.GetAppName()
+	serviceName := setup.GetServiceName()
+	command := setup.GetCommand()
+
+	o.logger.Info("получен exec-запрос", "app", appName, "service", serviceName, "command", command)
+
+	resources, err := o.stateManager.GetResourceByApp(appName)
+	if err != nil {
+		return status.Errorf(codes.Internal, "ошибка получения ресурсов из state manager: %v", err)
+	}
+
+	var containerID string
+	for _, res := range resources {
+		if res.ResourceType == "container" && res.ServiceName == serviceName {
+			containerID = res.ID
+			break
+		}
+	}
+
+	if containerID == "" {
+		return status.Errorf(codes.NotFound, "сервис '%s' в приложении '%s' не найден или не запущен", serviceName, appName)
+	}
+
+	ctx := stream.Context()
+	execConfig := &types.ExecConfig{
+		AttachStdin:  true,
+		AttachStdout: true,
+		AttachStderr: true,
+		Tty:          setup.GetTty(),
+		Cmd:          command,
+	}
+
+	execResp, err := o.dockerClient.ContainerExecCreate(ctx, containerID, *execConfig)
+	if err != nil {
+		return status.Errorf(codes.Internal, "не удалось создать exec-инстанс в Docker: %v", err)
+	}
+
+	hijackedResp, err := o.dockerClient.ContainerExecAttach(ctx, execResp.ID, types.ExecStartCheck{Tty: setup.GetTty()})
+	if err != nil {
+		return status.Errorf(codes.Internal, "не удалось присоединиться к exec-инстансу: %v", err)
+	}
+	defer hijackedResp.Close()
+
+	g, _ := errgroup.WithContext(ctx)
+
+	g.Go(func() error {
+		for {
+			req, err := stream.Recv()
+			if err == io.EOF {
+				return hijackedResp.CloseWrite()
+			}
+			if err != nil {
+				return err
+			}
+
+			_, err = hijackedResp.Conn.Write(req.GetStdin())
+			if err != nil {
+				return err
+			}
+		}
+	})
+
+	g.Go(func() error {
+		for {
+			buf := make([]byte, 4096)
+			n, err := hijackedResp.Conn.Read(buf)
+			if err != nil {
+				return err
+			}
+
+			if n > 0 {
+				if err := stream.Send(&pb.ExecOutput{Data: buf[:n]}); err != nil {
+					return err
+				}
+			}
+		}
+	})
 
 	return g.Wait()
 }

@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             v6.31.1
-// source: api/proto/forge.proto
+// source: forge.proto
 
 package proto
 
@@ -23,6 +23,7 @@ const (
 	Forge_Down_FullMethodName   = "/forge.Forge/Down"
 	Forge_Logs_FullMethodName   = "/forge.Forge/Logs"
 	Forge_Status_FullMethodName = "/forge.Forge/Status"
+	Forge_Exec_FullMethodName   = "/forge.Forge/Exec"
 )
 
 // ForgeClient is the client API for Forge service.
@@ -37,6 +38,8 @@ type ForgeClient interface {
 	Logs(ctx context.Context, in *LogRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[LogEntry], error)
 	// Получение статуса сервисов
 	Status(ctx context.Context, in *StatusRequest, opts ...grpc.CallOption) (*StatusResponse, error)
+	// Выполняет команду в контейнере, обеспечивая двунаправленную связь
+	Exec(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ExecPayload, ExecOutput], error)
 }
 
 type forgeClient struct {
@@ -105,6 +108,19 @@ func (c *forgeClient) Status(ctx context.Context, in *StatusRequest, opts ...grp
 	return out, nil
 }
 
+func (c *forgeClient) Exec(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ExecPayload, ExecOutput], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &Forge_ServiceDesc.Streams[2], Forge_Exec_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[ExecPayload, ExecOutput]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type Forge_ExecClient = grpc.BidiStreamingClient[ExecPayload, ExecOutput]
+
 // ForgeServer is the server API for Forge service.
 // All implementations must embed UnimplementedForgeServer
 // for forward compatibility.
@@ -117,6 +133,8 @@ type ForgeServer interface {
 	Logs(*LogRequest, grpc.ServerStreamingServer[LogEntry]) error
 	// Получение статуса сервисов
 	Status(context.Context, *StatusRequest) (*StatusResponse, error)
+	// Выполняет команду в контейнере, обеспечивая двунаправленную связь
+	Exec(grpc.BidiStreamingServer[ExecPayload, ExecOutput]) error
 	mustEmbedUnimplementedForgeServer()
 }
 
@@ -138,6 +156,9 @@ func (UnimplementedForgeServer) Logs(*LogRequest, grpc.ServerStreamingServer[Log
 }
 func (UnimplementedForgeServer) Status(context.Context, *StatusRequest) (*StatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Status not implemented")
+}
+func (UnimplementedForgeServer) Exec(grpc.BidiStreamingServer[ExecPayload, ExecOutput]) error {
+	return status.Errorf(codes.Unimplemented, "method Exec not implemented")
 }
 func (UnimplementedForgeServer) mustEmbedUnimplementedForgeServer() {}
 func (UnimplementedForgeServer) testEmbeddedByValue()               {}
@@ -218,6 +239,13 @@ func _Forge_Status_Handler(srv interface{}, ctx context.Context, dec func(interf
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Forge_Exec_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(ForgeServer).Exec(&grpc.GenericServerStream[ExecPayload, ExecOutput]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type Forge_ExecServer = grpc.BidiStreamingServer[ExecPayload, ExecOutput]
+
 // Forge_ServiceDesc is the grpc.ServiceDesc for Forge service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -245,6 +273,12 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 			Handler:       _Forge_Logs_Handler,
 			ServerStreams: true,
 		},
+		{
+			StreamName:    "Exec",
+			Handler:       _Forge_Exec_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
+		},
 	},
-	Metadata: "api/proto/forge.proto",
+	Metadata: "forge.proto",
 }

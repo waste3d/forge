@@ -15,11 +15,33 @@ service Forge {
     rpc Logs(LogRequest) returns (stream LogEntry);
 
     // Получение статуса сервисов
-    rpc Status(StatusRequest) returns (StatusResponse) {}
-}   
+    rpc Status(StatusRequest) returns (StatusResponse);
+
+    // Выполняет команду в контейнере, обеспечивая двунаправленную связь
+    rpc Exec(stream ExecPayload) returns (stream ExecOutput);
+}
+
+message ExecSetup {
+  string app_name = 1;
+  string service_name = 2;
+  repeated string command = 3;
+  bool tty = 4; // True, если нужен интерактивный псевдо-терминал
+}
+
+message ExecPayload {
+  oneof payload {
+    ExecSetup setup = 1;
+    bytes stdin = 2; // Фрагмент данных из стандартного ввода клиента
+  }
+}
+
+message ExecOutput {
+  bytes data = 1;
+}
+
 
 message ServiceStatus {
-  string app_name = 1; 
+  string app_name = 1;
   string service_name = 2;
   string resource_type = 3;
   string resource_id = 4;
@@ -43,10 +65,8 @@ message LogRequest {
 }
 
 message UpRequest {
-    // Содержимое файла forge.yaml в виде строки
     string config_content = 1;
 
-    // Уникальное имя для этой среды 
     string app_name = 2;
 }
 
