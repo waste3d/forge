@@ -7,8 +7,8 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+	"github.com/waste3d/forge/cmd/forge/cli/helpers"
 	pb "github.com/waste3d/forge/internal/gen/proto"
-	"github.com/waste3d/forge/pkg/parser"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -26,28 +26,16 @@ func init() {
 
 func runDown(cmd *cobra.Command, args []string) {
 	var appName string
+	var err error
 
 	if len(args) > 0 {
 		appName = args[0]
 	} else {
-		content, err := os.ReadFile("forge.yaml")
+		appName, err = helpers.GetAppNameFromConfig()
 		if err != nil {
-			errorLog(os.Stderr, "\n❌ Ошибка чтения forge.yaml: %v\n", err)
-			errorLog(os.Stderr, "Пожалуйста, укажите appName явно ('forge down <appName>') или запустите команду из директории с файлом forge.yaml.\n")
+			errorLog(os.Stderr, "\n❌ %v\n", err)
 			os.Exit(1)
 		}
-
-		config, err := parser.Parse(content)
-		if err != nil {
-			errorLog(os.Stderr, "\n❌ Ошибка парсинга forge.yaml: %v\n", err)
-			os.Exit(1)
-		}
-		if config.AppName == "" {
-			errorLog(os.Stderr, "\n❌ Ошибка: в файле forge.yaml не указан appName.\n")
-			errorLog(os.Stderr, "Пожалуйста, добавьте appName в файл forge.yaml.\n")
-			os.Exit(1)
-		}
-		appName = config.AppName
 	}
 
 	if err := runDownLogic(appName); err != nil {
