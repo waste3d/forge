@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -13,23 +13,22 @@ import (
 	"github.com/waste3d/forge/cmd/forge/cli/helpers"
 )
 
-func AnalyzeLogsWithAI(ctx context.Context, collectedLogs map[string][]string) (string, error) {
+type OpenRouterResponse struct {
+	Choices []struct {
+		Message struct {
+			Content string `json:"content"`
+		} `json:"message"`
+	} `json:"choices"`
+}
+
+func makeOpenRouterRequest(ctx context.Context, prompt string) (string, error) {
 	apiKey := os.Getenv("AI_API_KEY")
-	if apiKey == "" {
-		apiKey = "YOUR_OPENROUTER_API_KEY"
+	if apiKey == "" || apiKey == "YOUR_OPENROUTER_API_KEY" {
+		return "", fmt.Errorf("не установлен API ключ. Установите переменную окружения AI_API_KEY")
 	}
-
-	var logBuilder strings.Builder
-	for serviceName, logs := range collectedLogs {
-		for _, logLine := range logs {
-			logBuilder.WriteString(fmt.Sprintf("[%s] %s\n", serviceName, logLine))
-		}
-	}
-
-	prompt := helpers.BuildPrompt(logBuilder.String())
 
 	reqBody := map[string]interface{}{
-		"model": "openai/gpt-oss-20b:free", // free model
+		"model": "openai/gpt-oss-20b:free",
 		"messages": []map[string]string{
 			{"role": "user", "content": prompt},
 		},
@@ -50,23 +49,16 @@ func AnalyzeLogsWithAI(ctx context.Context, collectedLogs map[string][]string) (
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("ошибка отправки запроса к DeepSeek: %w", err)
+		return "", fmt.Errorf("ошибка отправки запроса к OpenRouter API: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		bodyBytes, _ := ioutil.ReadAll(resp.Body)
-		return "", fmt.Errorf("ошибка от DeepSeek API: %s", string(bodyBytes))
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("ошибка от OpenRouter API (статус %d): %s", resp.StatusCode, string(bodyBytes))
 	}
 
-	var result struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-	}
-
+	var result OpenRouterResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return "", fmt.Errorf("ошибка разбора ответа: %w", err)
 	}
@@ -75,4 +67,20 @@ func AnalyzeLogsWithAI(ctx context.Context, collectedLogs map[string][]string) (
 		return result.Choices[0].Message.Content, nil
 	}
 	return "ИИ не вернул ответа", nil
+}
+
+func AnalyzeLogsWithAI(ctx context.Context, collectedLogs map[string][]string) (string, error) {
+	var logBuilder strings.Builder
+	for serviceName, logs := range collectedLogs {
+		for _, logLine := range logs {
+			logBuilder.WriteString(fmt.Sprintf("[%s] %s\n", serviceName, logLine))
+		}
+	}
+
+	prompt := helpers.BuildPrompt(logBuilder.String())
+	return makeOpenRouterRequest(ctx, prompt)
+}
+
+func AnalyzeDockerfileWithAI(ctx context.Context, prompt string) (string, error) {
+	return makeOpenRouterRequest(ctx, prompt)
 }

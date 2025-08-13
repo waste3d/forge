@@ -17,11 +17,10 @@ import (
 )
 
 var (
-	infoLog           = color.New(color.FgYellow).Printf
-	successLog        = color.New(color.FgGreen).Printf
-	errorLog          = color.New(color.FgRed).Fprintf
-	daemonAddress     string
-	daemonMetricsAddr = "localhost:9091"
+	infoLog       = color.New(color.FgYellow).Printf
+	successLog    = color.New(color.FgGreen).Printf
+	errorLog      = color.New(color.FgRed).Fprintf
+	daemonAddress string
 )
 
 var rootCmd = &cobra.Command{

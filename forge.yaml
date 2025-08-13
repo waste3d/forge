@@ -1,9 +1,0 @@
-appName: redis-app
-version: 1
-
-services:
-  - name: redis-cache
-    image: redis:7-alpine
-    port: 6380
-    internalPort: 6379
-    healthCheckTimeout: 15
