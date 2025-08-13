@@ -259,7 +259,7 @@ func (o *Orchestrator) Logs(ctx context.Context, serviceName string, follow bool
 	return g.Wait()
 }
 
-func (o *Orchestrator) healthCheckPort(ctx context.Context, serviceName string, port int) error {
+func (o *Orchestrator) healthCheckPort(ctx context.Context, serviceName string, port int, timeout int) error {
 	if port == 0 {
 		o.sendLog(serviceName, "Проверка готовности пропущена: порт не указан.")
 		return nil
@@ -267,8 +267,7 @@ func (o *Orchestrator) healthCheckPort(ctx context.Context, serviceName string, 
 
 	o.sendLog(serviceName, fmt.Sprintf("Проверка готовности на порту %d...", port))
 
-	timeout := 10 * time.Second
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 	defer cancel()
 
 	address := fmt.Sprintf("localhost:%d", port)

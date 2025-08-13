@@ -31,7 +31,7 @@ func (s *ServiceNode) Start(ctx context.Context, networkID string, orchestrator 
 }
 
 func (s *ServiceNode) IsReady(ctx context.Context, orchestrator *Orchestrator) error {
-	return orchestrator.healthCheckPort(ctx, s.Name, s.port)
+	return orchestrator.healthCheckPort(ctx, s.Name, s.port, s.HealthCheckTimeout)
 }
 
 type DBNode struct {
@@ -55,5 +55,5 @@ func (d *DBNode) Start(ctx context.Context, networkID string, orchestrator *Orch
 }
 
 func (d *DBNode) IsReady(ctx context.Context, orchestrator *Orchestrator) error {
-	return orchestrator.healthCheckPort(ctx, d.Name, d.port)
+	return orchestrator.healthCheckPort(ctx, d.Name, d.port, d.HealthCheckTimeout)
 }

@@ -10,23 +10,25 @@ type Config struct {
 
 // ServiceConfig описывает один сервис, например, бэкенд или фронтенд
 type ServiceConfig struct {
-	Name         string   `yaml:"name"`
-	Type         string   `yaml:"type"` // example: go, node, python, etc..
-	Repo         string   `yaml:"repo,omitempty"`
-	Path         string   `yaml:"path,omitempty"`
-	Port         int      `yaml:"port"`
-	InternalPort int      `yaml:"internalPort,omitempty"`
-	DependsOn    []string `yaml:"dependsOn,omitempty"`
-	Env          []string `yaml:"env,omitempty"`
+	Name               string   `yaml:"name"`
+	Type               string   `yaml:"type"` // example: go, node, python, etc..
+	Repo               string   `yaml:"repo,omitempty"`
+	Path               string   `yaml:"path,omitempty"`
+	Port               int      `yaml:"port"`
+	InternalPort       int      `yaml:"internalPort,omitempty"`
+	HealthCheckTimeout int      `yaml:"healthCheckTimeout,omitempty"`
+	DependsOn          []string `yaml:"dependsOn,omitempty"`
+	Env                []string `yaml:"env,omitempty"`
 }
 
 // DBConfig описывает одну базу данных
 type DBConfig struct {
-	Name         string   `yaml:"name"`
-	Type         string   `yaml:"type"` // example: "postgres", "redis", "mongo", etc..
-	Version      string   `yaml:"version"`
-	Port         int      `yaml:"port"`
-	InternalPort int      `yaml:"internalPort,omitempty"`
-	DependsOn    []string `yaml:"dependsOn,omitempty"`
-	Env          []string `yaml:"env,omitempty"`
+	Name               string   `yaml:"name"`
+	Type               string   `yaml:"type"` // example: "postgres", "redis", "mongo", etc..
+	Version            string   `yaml:"version"`
+	Port               int      `yaml:"port"`
+	InternalPort       int      `yaml:"internalPort,omitempty"`
+	HealthCheckTimeout int      `yaml:"healthCheckTimeout,omitempty"`
+	DependsOn          []string `yaml:"dependsOn,omitempty"`
+	Env                []string `yaml:"env,omitempty"`
 }
