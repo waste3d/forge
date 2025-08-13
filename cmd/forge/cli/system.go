@@ -70,6 +70,17 @@ var systemStopCmd = &cobra.Command{
 	},
 }
 
+var systemRestartCmd = &cobra.Command{
+	Use:   "restart",
+	Short: "Перезапускает демон 'forged'",
+	Run: func(cmd *cobra.Command, args []string) {
+		systemStopCmd.Run(cmd, args)
+		time.Sleep(2 * time.Second)
+		systemStartCmd.Run(cmd, args)
+	},
+	Aliases: []string{"restart"},
+}
+
 // systemStatusCmd - для проверки статуса демона
 var systemStatusCmd = &cobra.Command{
 	Use:   "status",
@@ -87,6 +98,7 @@ func init() {
 	// Добавляем дочерние команды к 'system'
 	systemCmd.AddCommand(systemStartCmd)
 	systemCmd.AddCommand(systemStopCmd)
+	systemCmd.AddCommand(systemRestartCmd)
 	systemCmd.AddCommand(systemStatusCmd)
 
 	// Добавляем команду 'system' к корневой команде
