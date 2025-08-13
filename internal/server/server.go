@@ -10,6 +10,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/docker/docker/client"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	pb "github.com/waste3d/forge/internal/gen/proto"
 	"github.com/waste3d/forge/internal/orchestrator"
@@ -159,46 +160,68 @@ func InitializeServer(listenAddr string) error {
 	handler := slog.NewJSONHandler(os.Stderr, nil)
 	logger := slog.New(handler)
 
-	g, gCtx := errgroup.WithContext(context.Background())
+	sm, err := state.NewManager()
+	if err != nil {
+		return fmt.Errorf("критическая ошибка инициализации state manager: %w", err)
+	}
+	defer sm.Close()
+
+	dockerCli, err := client.NewClientWithOpts(client.FromEnv)
+	if err != nil {
+		return fmt.Errorf("ошибка создания клиента Docker: %w", err)
+	}
+	defer dockerCli.Close()
+
+	g, ctx := errgroup.WithContext(context.Background())
 
 	g.Go(func() error {
 		lis, err := net.Listen("tcp", listenAddr)
 		if err != nil {
-			slog.Error("не удалось запустить listener", "error", err)
+			logger.Error("не удалось запустить gRPC listener", "error", err)
+			return err
 		}
 
 		s := grpc.NewServer()
 		pb.RegisterForgeServer(s, &forgeServer{logger: logger})
-		logger.Info("дemon 'forged' запущен на порту", "listenAddr", listenAddr)
+		logger.Info("gRPC сервер запущен", "addr", listenAddr)
 
 		go func() {
-			<-gCtx.Done()
+			<-ctx.Done()
+			logger.Info("Остановка gRPC сервера...")
 			s.GracefulStop()
 		}()
 
-		if err := s.Serve(lis); err != nil {
+		return s.Serve(lis)
+	})
+
+	g.Go(func() error {
+		metricsAddr := "localhost:9091" // Порт для метрик
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", promhttp.Handler()) // Регистрируем хендлер Prometheus
+
+		srv := &http.Server{
+			Addr:    metricsAddr,
+			Handler: mux,
+		}
+
+		logger.Info("Эндпоинт для метрик запущен", "addr", metricsAddr)
+
+		go func() {
+			<-ctx.Done()
+			logger.Info("Остановка HTTP сервера метрик...")
+			srv.Shutdown(context.Background())
+		}()
+
+		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
+			logger.Error("ошибка HTTP сервера метрик", "error", err)
 			return err
 		}
 		return nil
 	})
 
 	g.Go(func() error {
-		prometheusAddr := "localhost:9090"
-		promConfig := `
-global:
-  scrape_interval: 15s
-scrape_configs:
-  - job_name: 'forged'
-    static_configs:
-      - targets: ['` + prometheusAddr + `']
-`
-		http.Handle("/metrics", promhttp.Handler())
-		logger.Info("prometheus запущен на порту", "prometheusAddr", prometheusAddr)
-		return http.ListenAndServe(prometheusAddr, nil)
-	})
-
-	g.Go(func() error {
-		return runMetricsCollector(gCtx, dockerClient)
+		orchestrator.RunMetricsCollector(ctx, logger, dockerCli, sm)
+		return nil
 	})
 
 	return g.Wait()
