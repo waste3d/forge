@@ -10,7 +10,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/waste3d/forge/cmd/forge/cli/helpers"
+	"github.com/waste3d/forge/ai/prompts"
 )
 
 type OpenRouterResponse struct {
@@ -77,7 +77,7 @@ func AnalyzeLogsWithAI(ctx context.Context, collectedLogs map[string][]string) (
 		}
 	}
 
-	prompt := helpers.BuildPrompt(logBuilder.String())
+	prompt := prompts.LogsPrompt(logBuilder.String())
 	return makeOpenRouterRequest(ctx, prompt)
 }
 

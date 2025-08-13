@@ -9,7 +9,7 @@ import (
 	"github.com/briandowns/spinner"
 	"github.com/charmbracelet/glamour"
 	"github.com/spf13/cobra"
-	"github.com/waste3d/forge/cmd/forge/cli/helpers"
+	"github.com/waste3d/forge/ai/prompts"
 	ai "github.com/waste3d/forge/openai"
 )
 
@@ -53,7 +53,7 @@ func runOptimize(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	prompt := helpers.BuildOptimizePrompt(string(content))
+	prompt := prompts.DockerfilePrompt(string(content))
 
 	aiResponse, err := ai.AnalyzeDockerfileWithAI(cmd.Context(), prompt)
 	if err != nil {
