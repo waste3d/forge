@@ -49,8 +49,8 @@ func runLogs(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	if ai && output == "" {
-		errorLog(os.Stderr, "\n❌ Флаг '--ai' требует указания '--output' для сохранения результата.\n")
+	if output != "" && !ai {
+		errorLog(os.Stderr, "\n❌ Флаг '--output' требует указания '--ai' для сохранения результата.\n")
 		os.Exit(1)
 	}
 
