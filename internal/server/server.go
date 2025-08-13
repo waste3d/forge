@@ -6,13 +6,16 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	pb "github.com/waste3d/forge/internal/gen/proto"
 	"github.com/waste3d/forge/internal/orchestrator"
 	"github.com/waste3d/forge/internal/state"
 	"github.com/waste3d/forge/pkg/parser"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -152,23 +155,53 @@ func (s *forgeServer) Logs(req *pb.LogRequest, stream pb.Forge_LogsServer) error
 	return orch.Logs(stream.Context(), serviceName, follow, stream)
 }
 
-func InitializeServer(listenAddr string) *forgeServer {
+func InitializeServer(listenAddr string) error {
 	handler := slog.NewJSONHandler(os.Stderr, nil)
 	logger := slog.New(handler)
 
-	lis, err := net.Listen("tcp", listenAddr)
-	if err != nil {
-		slog.Error("не удалось запустить listener", "error", err)
-	}
+	g, gCtx := errgroup.WithContext(context.Background())
 
-	s := grpc.NewServer()
-	pb.RegisterForgeServer(s, &forgeServer{logger: logger})
-	logger.Info("дemon 'forged' запущен на порту", "listenAddr", listenAddr)
-	if err := s.Serve(lis); err != nil {
-		logger.Error("ошибка gRPC сервера", "error", err)
-	}
+	g.Go(func() error {
+		lis, err := net.Listen("tcp", listenAddr)
+		if err != nil {
+			slog.Error("не удалось запустить listener", "error", err)
+		}
 
-	return &forgeServer{logger: logger}
+		s := grpc.NewServer()
+		pb.RegisterForgeServer(s, &forgeServer{logger: logger})
+		logger.Info("дemon 'forged' запущен на порту", "listenAddr", listenAddr)
+
+		go func() {
+			<-gCtx.Done()
+			s.GracefulStop()
+		}()
+
+		if err := s.Serve(lis); err != nil {
+			return err
+		}
+		return nil
+	})
+
+	g.Go(func() error {
+		prometheusAddr := "localhost:9090"
+		promConfig := `
+global:
+  scrape_interval: 15s
+scrape_configs:
+  - job_name: 'forged'
+    static_configs:
+      - targets: ['` + prometheusAddr + `']
+`
+		http.Handle("/metrics", promhttp.Handler())
+		logger.Info("prometheus запущен на порту", "prometheusAddr", prometheusAddr)
+		return http.ListenAndServe(prometheusAddr, nil)
+	})
+
+	g.Go(func() error {
+		return runMetricsCollector(gCtx, dockerClient)
+	})
+
+	return g.Wait()
 }
 
 func (s *forgeServer) Status(ctx context.Context, req *pb.StatusRequest) (*pb.StatusResponse, error) {
