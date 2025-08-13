@@ -103,7 +103,7 @@ func (o *Orchestrator) startService(ctx context.Context, serviceConfig *parser.S
 		if err != nil {
 			msg := fmt.Sprintf("Ошибка при скачивании образа '%s': %v", imageTag, err)
 			o.sendLog(serviceConfig.Name, msg)
-			return fmt.Errorf(msg)
+			return fmt.Errorf("%s", msg)
 		}
 		io.Copy(io.Discard, reader)
 		reader.Close()
