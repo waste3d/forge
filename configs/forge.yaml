@@ -1,0 +1,70 @@
+# Версия схемы конфигурации.
+version: 1
+
+# Уникальное имя вашего приложения.
+appName: "my-awesome-app"
+
+# Список баз данных и другой инфраструктуры.
+# Forge запустит их в первую очередь.
+databases:
+  # Основная база данных PostgreSQL.
+  - name: "main-db"
+    # 'type' и 'version' объединяются в имя Docker-образа: "postgres:15-alpine"
+    type: "postgres"
+    version: "15-alpine"
+    port: 54321
+    # Внутренний порт, который слушает приложение внутри контейнера.
+    internalPort: 5432
+    # Таймаут в секундах, который forge будет ждать, пока база не станет доступна.
+    healthCheckTimeout: 25
+    # Переменные окружения для инициализации PostgreSQL.
+    env:
+      - "POSTGRES_USER=appuser"
+      - "POSTGRES_PASSWORD=supersecret"
+      - "POSTGRES_DB=appdb"
+
+  # Кэш на Redis.
+  - name: "cache"
+    type: "redis"
+    version: "7-alpine"
+    port: 63790
+    internalPort: 6379
+    healthCheckTimeout: 15
+    env: []
+
+# Список ваших собственных сервисов.
+# Они будут запущены после того, как их зависимости (из dependsOn) будут готовы.
+services:
+  # Бэкенд-сервис. Вместо сборки из исходников мы используем готовый образ
+  # для демонстрации. Это простой HTTP-сервер, который отвечает на запросы.
+  - name: "backend-api"
+    type: "go" # Это поле пока информационное.
+    # Используем готовый образ вместо 'path' или 'repo' для этого примера.
+    image: "hashicorp/http-echo:1.0"
+    port: 8080
+    # Внутренний порт, который слушает http-echo.
+    # Мы передаем его через переменные окружения.
+    internalPort: 5678
+    healthCheckTimeout: 10
+    # Эта секция - ключевая. Она говорит forge:
+    # "Не запускай backend-api, пока main-db и cache не будут полностью готовы".
+    dependsOn:
+      - "main-db"
+      - "cache"
+    # Передаем в http-echo-сервер текст для ответа и порт, который нужно слушать.
+    env:
+      - "TEXT_TO_ECHO=Hello from Forge Backend!"
+      - "LISTEN_PORT=5678"
+
+  # Frontend/Прокси-сервер на Nginx.
+  - name: "frontend-proxy"
+    type: "nginx"
+    # Используем готовый образ Nginx.
+    image: "nginx:1.25-alpine"
+    port: 80
+    internalPort: 80
+    healthCheckTimeout: 10
+    # Этот сервис запустится только после того, как будет готов backend-api.
+    # Таким образом, мы создаем цепочку зависимостей.
+    dependsOn:
+      - "backend-api"
