@@ -13,7 +13,7 @@ import (
 )
 
 func AnalyzeLogsWithAI(ctx context.Context, collectedLogs map[string][]string) (string, error) {
-	apiKey := "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"
+	apiKey := "<YOUR_OPENROUTER_API_KEY>"
 
 	var logBuilder strings.Builder
 	for serviceName, logs := range collectedLogs {
