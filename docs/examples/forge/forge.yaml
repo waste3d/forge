@@ -2,12 +2,9 @@ appName: example
 version: 1
 
 services:
-  - name: backend
-    type: go
-    image: golang:1.23.4-alpine
-    port: 8080
-    internalPort: 5678
-    healthCheckTimeout: 10
-    env:
-      - name: PORT
-        value: "8080"
+  - name: test
+    type: redis
+    image: redis:7-alpine
+    port: 63790
+    internalPort: 6379
+    healthCheckTimeout: 15
