@@ -4,10 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"time"
 
+	"github.com/briandowns/spinner"
+	"github.com/charmbracelet/glamour"
 	"github.com/spf13/cobra"
 	pb "github.com/waste3d/forge/internal/gen/proto"
+	ai "github.com/waste3d/forge/openai"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -22,6 +27,7 @@ var logsCmd = &cobra.Command{
 
 func init() {
 	logsCmd.Flags().BoolP("follow", "f", false, "Следить за логами в реальном времени")
+	logsCmd.Flags().Bool("ai", false, "Анализировать логи с помощью ИИ для поиска корневой причины ошибок")
 	rootCmd.AddCommand(logsCmd)
 }
 
@@ -33,15 +39,21 @@ func runLogs(cmd *cobra.Command, args []string) {
 		serviceName = args[1]
 	}
 	follow, _ := cmd.Flags().GetBool("follow")
+	ai, _ := cmd.Flags().GetBool("ai")
 
-	if err := runLogsLogic(cmd.Context(), appName, serviceName, follow); err != nil {
+	if ai && follow {
+		errorLog(os.Stderr, "\n❌ Флаги '--ai' и '--follow' нельзя использовать одновременно.\n")
+		os.Exit(1)
+	}
+
+	if err := runLogsLogic(cmd.Context(), appName, serviceName, follow, ai); err != nil {
 		errorLog(os.Stderr, "\n❌ Ошибка выполнения 'logs': %v\n", err)
 		os.Exit(1)
 	}
 	successLog("\n✅ Команда 'logs' успешно завершена.\n")
 }
 
-func runLogsLogic(ctx context.Context, appName, serviceName string, follow bool) error {
+func runLogsLogic(ctx context.Context, appName, serviceName string, follow, useAI bool) error {
 	if !isDaemonRunning() {
 		return errors.New("демон 'forged' не запущен. Невозможно получить логи")
 	}
@@ -66,5 +78,54 @@ func runLogsLogic(ctx context.Context, appName, serviceName string, follow bool)
 		return fmt.Errorf("ошибка при получении логов: %w", err)
 	}
 
-	return PrintLogs(stream)
+	if useAI {
+		s := spinner.New(spinner.CharSets[14], 100*time.Millisecond)
+		s.Suffix = " Анализирую логи с помощью ИИ... (может занять до 30 секунд)"
+		s.Start()
+
+		// Собираем логи вместо их печати
+		collectedLogs := make(map[string][]string)
+		for {
+			logEntry, err := stream.Recv()
+			if err == io.EOF {
+				break // Все логи получены
+			}
+			if err != nil {
+				s.Stop()
+				return fmt.Errorf("ошибка при чтении потока логов: %w", err)
+			}
+			collectedLogs[logEntry.GetServiceName()] = append(collectedLogs[logEntry.GetServiceName()], logEntry.GetMessage())
+		}
+
+		// Вызываем нашу новую функцию
+		aiResponse, err := ai.AnalyzeLogsWithAI(ctx, collectedLogs)
+		s.Stop() // Останавливаем спиннер
+		if err != nil {
+			return err
+		}
+
+		// Печатаем результат от ИИ
+		fmt.Println("\n---")
+		renderer, _ := glamour.NewTermRenderer(
+			glamour.WithAutoStyle(),
+			glamour.WithWordWrap(100),
+		)
+		out, err := renderer.Render(aiResponse)
+		if err != nil {
+			fmt.Println(aiResponse) // fallback — печатаем как есть
+		} else {
+			fmt.Print(out)
+		}
+		fmt.Println("---")
+
+		return nil
+
+	} else {
+		// Старая логика, если --ai не используется
+		err := PrintLogs(stream)
+		if err == nil {
+			successLog("\n✅ Команда 'logs' успешно завершена.\n")
+		}
+		return err
+	}
 }

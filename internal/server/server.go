@@ -6,12 +6,10 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
-	"net/http"
 	"os"
 	"time"
 
 	"github.com/docker/docker/client"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	pb "github.com/waste3d/forge/internal/gen/proto"
 	"github.com/waste3d/forge/internal/orchestrator"
 	"github.com/waste3d/forge/internal/state"
@@ -177,8 +175,8 @@ func InitializeServer(listenAddr string) error {
 	g.Go(func() error {
 		lis, err := net.Listen("tcp", listenAddr)
 		if err != nil {
-			logger.Error("не удалось запустить gRPC listener", "error", err)
-			return err
+			logger.Error("не удалось запустить gRPC listener", "addr", listenAddr, "error", err)
+			return fmt.Errorf("не удалось слушать порт gRPC %s: %w", listenAddr, err)
 		}
 
 		s := grpc.NewServer()
@@ -191,40 +189,16 @@ func InitializeServer(listenAddr string) error {
 			s.GracefulStop()
 		}()
 
-		return s.Serve(lis)
-	})
-
-	g.Go(func() error {
-		metricsAddr := "localhost:9091" // Порт для метрик
-		mux := http.NewServeMux()
-		mux.Handle("/metrics", promhttp.Handler()) // Регистрируем хендлер Prometheus
-
-		srv := &http.Server{
-			Addr:    metricsAddr,
-			Handler: mux,
-		}
-
-		logger.Info("Эндпоинт для метрик запущен", "addr", metricsAddr)
-
-		go func() {
-			<-ctx.Done()
-			logger.Info("Остановка HTTP сервера метрик...")
-			srv.Shutdown(context.Background())
-		}()
-
-		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
-			logger.Error("ошибка HTTP сервера метрик", "error", err)
-			return err
+		if err := s.Serve(lis); err != nil {
+			return fmt.Errorf("ошибка gRPC сервера: %w", err)
 		}
 		return nil
 	})
 
-	g.Go(func() error {
-		orchestrator.RunMetricsCollector(ctx, logger, dockerCli, sm)
-		return nil
-	})
-
-	return g.Wait()
+	if err := g.Wait(); err != nil {
+		return fmt.Errorf("ошибка в группе запуска сервисов: %w", err)
+	}
+	return nil
 }
 
 func (s *forgeServer) Status(ctx context.Context, req *pb.StatusRequest) (*pb.StatusResponse, error) {

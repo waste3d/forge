@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"time"
 
 	"github.com/fatih/color"
@@ -16,10 +17,11 @@ import (
 )
 
 var (
-	infoLog       = color.New(color.FgYellow).Printf
-	successLog    = color.New(color.FgGreen).Printf
-	errorLog      = color.New(color.FgRed).Fprintf
-	daemonAddress string
+	infoLog           = color.New(color.FgYellow).Printf
+	successLog        = color.New(color.FgGreen).Printf
+	errorLog          = color.New(color.FgRed).Fprintf
+	daemonAddress     string
+	daemonMetricsAddr = "localhost:9091"
 )
 
 var rootCmd = &cobra.Command{
@@ -77,7 +79,25 @@ func startDaemon() error {
 		return errors.New("не удалось найти 'forged' в вашем PATH. Убедитесь, что демон установлен и доступен")
 	}
 
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("не удалось определить домашнюю директорию: %w", err)
+	}
+	logDir := filepath.Join(home, ".forge")
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		return fmt.Errorf("не удалось создать директорию для логов: %w", err)
+	}
+	logFilePath := filepath.Join(logDir, "forged.log")
+
+	logFile, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	if err != nil {
+		return fmt.Errorf("не удалось открыть лог-файл: %w", err)
+	}
+
 	cmd := exec.Command(path)
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
+
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("не удалось запустить 'forged': %w", err)
 	}

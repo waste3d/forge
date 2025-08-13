@@ -3,6 +3,7 @@ package cli
 import (
 	"os"
 	"os/exec"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -25,6 +26,26 @@ var systemStartCmd = &cobra.Command{
 			errorLog(os.Stderr, "❌ Не удалось запустить демон: %v\n", err)
 			os.Exit(1)
 		}
+
+		const maxRetries = 5
+		const retryDelay = 1 * time.Second
+
+		var ready bool
+		for i := 0; i < maxRetries; i++ {
+			if isDaemonRunning() {
+				ready = true
+				break
+			}
+			time.Sleep(retryDelay)
+		}
+
+		if !ready {
+			errorLog(os.Stderr, "❌ Демон был запущен, но не стал доступен в течение %d секунд.\n", maxRetries)
+			errorLog(os.Stderr, "Проверьте логи демона: ~/.forge/forged.log\n")
+			os.Exit(1)
+		}
+		// --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+
 		successLog("✅ Демон успешно запущен.\n")
 	},
 }
