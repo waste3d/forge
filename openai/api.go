@@ -7,13 +7,17 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/waste3d/forge/cmd/forge/cli/helpers"
 )
 
 func AnalyzeLogsWithAI(ctx context.Context, collectedLogs map[string][]string) (string, error) {
-	apiKey := "<YOUR_OPENROUTER_API_KEY>"
+	apiKey := os.Getenv("AI_API_KEY")
+	if apiKey == "" {
+		apiKey = "YOUR_OPENROUTER_API_KEY"
+	}
 
 	var logBuilder strings.Builder
 	for serviceName, logs := range collectedLogs {
@@ -25,7 +29,7 @@ func AnalyzeLogsWithAI(ctx context.Context, collectedLogs map[string][]string) (
 	prompt := helpers.BuildPrompt(logBuilder.String())
 
 	reqBody := map[string]interface{}{
-		"model": "openai/gpt-oss-20b:free",
+		"model": "openai/gpt-oss-20b:free", // free model
 		"messages": []map[string]string{
 			{"role": "user", "content": prompt},
 		},
