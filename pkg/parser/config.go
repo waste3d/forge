@@ -16,6 +16,7 @@ type ServiceConfig struct {
 	Path               string   `yaml:"path,omitempty"`
 	Port               int      `yaml:"port"`
 	InternalPort       int      `yaml:"internalPort,omitempty"`
+	Image              string   `yaml:"image,omitempty"`
 	HealthCheckTimeout int      `yaml:"healthCheckTimeout,omitempty"`
 	DependsOn          []string `yaml:"dependsOn,omitempty"`
 	Env                []string `yaml:"env,omitempty"`

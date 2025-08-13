@@ -198,3 +198,20 @@ func (s *forgeServer) Status(ctx context.Context, req *pb.StatusRequest) (*pb.St
 		Services: serviceStatuses,
 	}, nil
 }
+
+func (s *forgeServer) Exec(stream pb.Forge_ExecServer) error {
+	sm, err := state.NewManager()
+	if err != nil {
+		s.logger.Error("критическая ошибка инициализации state manager", "error", err)
+		return status.Errorf(codes.Internal, "ошибка инициализации state manager: %v", err)
+	}
+	defer sm.Close()
+
+	orch, err := orchestrator.New("", nil, s.logger, sm)
+	if err != nil {
+		s.logger.Error("критическая ошибка инициализации оркестратора", "error", err)
+		return status.Errorf(codes.Internal, "ошибка инициализации оркестратора: %v", err)
+	}
+
+	return orch.Exec(stream)
+}
