@@ -28,6 +28,7 @@ var logsCmd = &cobra.Command{
 func init() {
 	logsCmd.Flags().BoolP("follow", "f", false, "Следить за логами в реальном времени")
 	logsCmd.Flags().Bool("ai", false, "Анализировать логи с помощью ИИ для поиска корневой причины ошибок")
+	logsCmd.Flags().String("output", "", "Сохранить результат анализа в файл")
 	rootCmd.AddCommand(logsCmd)
 }
 
@@ -38,22 +39,29 @@ func runLogs(cmd *cobra.Command, args []string) {
 	if len(args) > 1 {
 		serviceName = args[1]
 	}
+
 	follow, _ := cmd.Flags().GetBool("follow")
 	ai, _ := cmd.Flags().GetBool("ai")
+	output, _ := cmd.Flags().GetString("output")
 
 	if ai && follow {
 		errorLog(os.Stderr, "\n❌ Флаги '--ai' и '--follow' нельзя использовать одновременно.\n")
 		os.Exit(1)
 	}
 
-	if err := runLogsLogic(cmd.Context(), appName, serviceName, follow, ai); err != nil {
+	if ai && output == "" {
+		errorLog(os.Stderr, "\n❌ Флаг '--ai' требует указания '--output' для сохранения результата.\n")
+		os.Exit(1)
+	}
+
+	if err := runLogsLogic(cmd.Context(), appName, serviceName, follow, ai, output); err != nil {
 		errorLog(os.Stderr, "\n❌ Ошибка выполнения 'logs': %v\n", err)
 		os.Exit(1)
 	}
 	successLog("\n✅ Команда 'logs' успешно завершена.\n")
 }
 
-func runLogsLogic(ctx context.Context, appName, serviceName string, follow, useAI bool) error {
+func runLogsLogic(ctx context.Context, appName, serviceName string, follow, useAI bool, output string) error {
 	if !isDaemonRunning() {
 		return errors.New("демон 'forged' не запущен. Невозможно получить логи")
 	}
@@ -117,6 +125,11 @@ func runLogsLogic(ctx context.Context, appName, serviceName string, follow, useA
 			fmt.Print(out)
 		}
 		fmt.Println("---")
+
+		if output != "" {
+			os.WriteFile(output, []byte(aiResponse), 0644)
+			successLog("Результат анализа сохранен в файл %s\n", output)
+		}
 
 		return nil
 

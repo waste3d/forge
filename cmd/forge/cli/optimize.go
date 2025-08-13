@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
+	"github.com/briandowns/spinner"
 	"github.com/charmbracelet/glamour"
 	"github.com/spf13/cobra"
 	"github.com/waste3d/forge/cmd/forge/cli/helpers"
@@ -36,7 +38,9 @@ func runOptimize(cmd *cobra.Command, args []string) {
 		infoLog("Предупреждение: файл %s может не быть Dockerfile\n", dockerfile)
 	}
 
-	infoLog("Оптимизация Dockerfile %s...\n", dockerfile)
+	s := spinner.New(spinner.CharSets[14], 100*time.Millisecond)
+	s.Suffix = " Анализирую Dockerfile... (может занять до 30 секунд)"
+	s.Start()
 
 	content, err := os.ReadFile(dockerfile)
 	if err != nil {
@@ -56,6 +60,8 @@ func runOptimize(cmd *cobra.Command, args []string) {
 		errorLog(os.Stderr, "Ошибка при анализе Dockerfile: %v\n", err)
 		os.Exit(1)
 	}
+
+	s.Stop()
 
 	renderer, err := glamour.NewTermRenderer(
 		glamour.WithAutoStyle(),
