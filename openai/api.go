@@ -21,7 +21,11 @@ type OpenRouterResponse struct {
 	} `json:"choices"`
 }
 
-func makeOpenRouterRequest(ctx context.Context, prompt string) (string, error) {
+func GenerateConfigWithAI(ctx context.Context, prompt string) (string, error) {
+	return makeOpenRouterRequest(ctx, prompt, 1500)
+}
+
+func makeOpenRouterRequest(ctx context.Context, prompt string, maxTokens int) (string, error) {
 	apiKey := os.Getenv("AI_API_KEY")
 	if apiKey == "" || apiKey == "YOUR_OPENROUTER_API_KEY" {
 		return "", fmt.Errorf("не установлен API ключ. Установите переменную окружения AI_API_KEY")
@@ -32,6 +36,7 @@ func makeOpenRouterRequest(ctx context.Context, prompt string) (string, error) {
 		"messages": []map[string]string{
 			{"role": "user", "content": prompt},
 		},
+		"max_tokens": maxTokens,
 	}
 
 	jsonData, err := json.Marshal(reqBody)
@@ -78,9 +83,9 @@ func AnalyzeLogsWithAI(ctx context.Context, collectedLogs map[string][]string) (
 	}
 
 	prompt := prompts.LogsPrompt(logBuilder.String())
-	return makeOpenRouterRequest(ctx, prompt)
+	return makeOpenRouterRequest(ctx, prompt, 1500)
 }
 
 func AnalyzeDockerfileWithAI(ctx context.Context, prompt string) (string, error) {
-	return makeOpenRouterRequest(ctx, prompt)
+	return makeOpenRouterRequest(ctx, prompt, 1500)
 }
