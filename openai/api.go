@@ -21,10 +21,6 @@ type OpenRouterResponse struct {
 	} `json:"choices"`
 }
 
-func GenerateConfigWithAI(ctx context.Context, prompt string) (string, error) {
-	return makeOpenRouterRequest(ctx, prompt, 1500)
-}
-
 func makeOpenRouterRequest(ctx context.Context, prompt string, maxTokens int) (string, error) {
 	apiKey := os.Getenv("AI_API_KEY")
 	if apiKey == "" || apiKey == "YOUR_OPENROUTER_API_KEY" {
