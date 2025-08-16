@@ -250,3 +250,114 @@ func (o *Orchestrator) startService(ctx context.Context, serviceConfig *parser.S
 	// Сохраняем информацию о созданном ресурсе
 	return o.stateManager.AddResource(o.appName, "container", resp.ID, serviceConfig.Name)
 }
+
+func (o *Orchestrator) buildService(ctx context.Context, serviceConfig *parser.ServiceConfig) (string, error) {
+	imageTag := fmt.Sprintf("forge-image-%s-%s:latest", o.appName, serviceConfig.Name)
+	var buildContextPath string
+
+	if serviceConfig.Repo != "" {
+		tempDir, err := os.MkdirTemp(".", "forge-build-*")
+		if err != nil {
+			return "", fmt.Errorf("не удалось создать временную директорию: %w", err)
+		}
+		defer os.RemoveAll(tempDir)
+
+		o.sendLog(serviceConfig.Name, fmt.Sprintf("Клонирование репозитория %s...", serviceConfig.Repo))
+		cmd := exec.Command("git", "clone", "--depth=1", serviceConfig.Repo, tempDir)
+
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return "", fmt.Errorf("не удалось склонировать репозиторий: %w, вывод: %s", err, string(output))
+		}
+
+		buildContextPath = tempDir
+	} else if serviceConfig.Path != "" {
+		o.sendLog(serviceConfig.Name, fmt.Sprintf("Используется локальный путь: %s", serviceConfig.Path))
+
+		if _, err := os.Stat(serviceConfig.Path); os.IsNotExist(err) {
+			return "", fmt.Errorf("локальный путь '%s' не найден", serviceConfig.Path)
+		}
+
+		buildContextPath = serviceConfig.Path
+	} else {
+		return "", fmt.Errorf("у сервиса '%s' должен быть указан либо 'repo', либо 'path'", serviceConfig.Name)
+	}
+
+	o.sendLog(serviceConfig.Name, fmt.Sprintf("Подготовка и сборка Docker-образа из '%s'...", buildContextPath))
+
+	pr, pw := io.Pipe()
+	tw := tar.NewWriter(pw)
+	go func() {
+		defer pw.Close()
+		defer tw.Close()
+
+		filepath.Walk(buildContextPath, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+
+			if !info.Mode().IsRegular() {
+				return nil
+			}
+
+			relPath, err := filepath.Rel(buildContextPath, path)
+			if err != nil {
+				return fmt.Errorf("не удалось получить относительный путь для %s: %w", path, err)
+			}
+
+			hdr, err := tar.FileInfoHeader(info, relPath)
+			if err != nil {
+				return fmt.Errorf("не удалось создать заголовок tar для %s: %w", path, err)
+			}
+
+			hdr.Name = relPath
+			if err := tw.WriteHeader(hdr); err != nil {
+				return fmt.Errorf("не удалось записать заголовок tar: %w", err)
+			}
+
+			file, err := os.Open(path)
+			if err != nil {
+				return fmt.Errorf("не удалось открыть файл %s: %w", path, err)
+			}
+			defer file.Close()
+			if _, err := io.Copy(tw, file); err != nil {
+				return fmt.Errorf("не удалось скопировать содержимое файла %s в архив: %w", path, err)
+			}
+			return nil
+		})
+	}()
+
+	buildResp, err := o.dockerClient.ImageBuild(ctx, pr, types.ImageBuildOptions{
+		Dockerfile: "Dockerfile",
+		Tags:       []string{imageTag},
+		Remove:     true,
+	})
+
+	if err != nil {
+		return "", fmt.Errorf("ошибка при запуске сборки образа: %w", err)
+	}
+	defer buildResp.Body.Close()
+
+	var buildError error
+	scanner := bufio.NewScanner(buildResp.Body)
+	for scanner.Scan() {
+		live := scanner.Bytes()
+		var respLine DockerBuildResponse
+		if err := json.Unmarshal(live, &respLine); err != nil {
+			o.sendLog(serviceConfig.Name, scanner.Text())
+			continue
+		}
+		if respLine.Stream != "" {
+			o.sendLog(serviceConfig.Name, respLine.Stream)
+		}
+		if respLine.Error != "" {
+			buildError = fmt.Errorf("ошибка сборки образа: %s", respLine.ErrorDetail.Message)
+		}
+	}
+
+	if buildError != nil {
+		return "", buildError
+	}
+
+	o.sendLog(serviceConfig.Name, "Образ успешно собран.")
+	return imageTag, nil
+}

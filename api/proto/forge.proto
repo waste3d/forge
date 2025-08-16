@@ -19,6 +19,9 @@ service Forge {
 
     // Выполняет команду в контейнере, обеспечивая двунаправленную связь
     rpc Exec(stream ExecPayload) returns (stream ExecOutput);
+
+    // Сборка образов для сервисов без запуска контейнеров
+    rpc Build(BuildRequest) returns (stream LogEntry);
 }
 
 message ExecSetup {
@@ -82,4 +85,9 @@ message LogEntry {
     string service_name = 1;
     int64 timestamp = 2;
     string message = 3;
+}
+
+message BuildRequest {
+  string config_content = 1;
+  repeated string services_name = 2; // если пусто, то все сервисы
 }
