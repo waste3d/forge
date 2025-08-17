@@ -354,6 +354,43 @@ func (o *Orchestrator) Exec(stream pb.Forge_ExecServer) error {
 	return g.Wait()
 }
 
+func (o *Orchestrator) Build(ctx context.Context, config *parser.Config, servicesToBuild []string) error {
+	o.sendLog("forged-daemon", "Начинаю процедуру сборки образов...")
+
+	servicesMap := make(map[string]bool)
+	for _, name := range servicesToBuild {
+		servicesMap[name] = true
+	}
+
+	buildAll := len(servicesToBuild) == 0
+
+	for i := range config.Services {
+		service := &config.Services[i]
+
+		if !buildAll && !servicesMap[service.Name] {
+			continue
+		}
+
+		if service.Image != "" {
+			o.sendLog(service.Name, fmt.Sprintf("Пропуск сборки: используется готовый образ '%s'.", service.Image))
+			continue
+		}
+
+		if service.Path == "" && service.Repo == "" {
+			o.sendLog(service.Name, "Пропуск сборки: не указан путь или репозиторий.")
+			continue
+		}
+
+		if _, err := o.buildService(ctx, service); err != nil {
+			o.sendLog(service.Name, fmt.Sprintf("Ошибка сборки: %v", err))
+			return err
+		}
+	}
+
+	o.sendLog("forged-daemon", "Сборка образов завершена.")
+	return nil
+}
+
 func (o *Orchestrator) healthCheckPort(ctx context.Context, serviceName string, port int, timeout int) error {
 	if port == 0 {
 		o.sendLog(serviceName, "Проверка готовности пропущена: порт не указан.")
