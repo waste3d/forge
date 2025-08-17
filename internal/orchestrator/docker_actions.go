@@ -3,7 +3,6 @@
 package orchestrator
 
 import (
-	"archive/tar"
 	"bufio"
 	"context"
 	"encoding/json"
@@ -11,11 +10,12 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
+	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/go-connections/nat"
 	"github.com/google/uuid"
 	"github.com/waste3d/forge/pkg/parser"
@@ -42,7 +42,7 @@ func (o *Orchestrator) startDatabase(ctx context.Context, dbConfig *parser.DBCon
 	imageName := fmt.Sprintf("%s:%s", dbConfig.Type, dbConfig.Version)
 
 	o.sendLog(dbConfig.Name, fmt.Sprintf("Pulling image %s...", imageName))
-	reader, err := o.dockerClient.ImagePull(ctx, imageName, types.ImagePullOptions{})
+	reader, err := o.dockerClient.ImagePull(ctx, imageName, image.PullOptions{})
 	if err != nil {
 		o.sendLog(dbConfig.Name, fmt.Sprintf("Ошибка при извлечении образа: %v", err))
 		return err
@@ -99,7 +99,7 @@ func (o *Orchestrator) startService(ctx context.Context, serviceConfig *parser.S
 		imageTag = serviceConfig.Image
 		o.sendLog(serviceConfig.Name, fmt.Sprintf("Используется готовый образ: %s. Скачиваю...", imageTag))
 
-		reader, err := o.dockerClient.ImagePull(ctx, imageTag, types.ImagePullOptions{})
+		reader, err := o.dockerClient.ImagePull(ctx, imageTag, image.PullOptions{})
 		if err != nil {
 			msg := fmt.Sprintf("Ошибка при скачивании образа '%s': %v", imageTag, err)
 			o.sendLog(serviceConfig.Name, msg)
@@ -138,45 +138,15 @@ func (o *Orchestrator) startService(ctx context.Context, serviceConfig *parser.S
 
 		o.sendLog(serviceConfig.Name, fmt.Sprintf("Подготовка и сборка Docker-образа из '%s'...", buildContextPath))
 
-		pr, pw := io.Pipe()
-		tw := tar.NewWriter(pw)
-		go func() {
-			defer pw.Close()
-			defer tw.Close()
+		buildContext, err := archive.TarWithOptions(buildContextPath, &archive.TarOptions{})
 
-			filepath.Walk(buildContextPath, func(path string, info os.FileInfo, err error) error {
-				if err != nil {
-					return err
-				}
-				if !info.Mode().IsRegular() {
-					return nil
-				}
-				relPath, err := filepath.Rel(buildContextPath, path)
-				if err != nil {
-					return fmt.Errorf("не удалось получить относительный путь для %s: %w", path, err)
-				}
-				hdr, err := tar.FileInfoHeader(info, relPath)
-				if err != nil {
-					return fmt.Errorf("не удалось создать заголовок tar для %s: %w", path, err)
-				}
-				hdr.Name = relPath
-				if err := tw.WriteHeader(hdr); err != nil {
-					return fmt.Errorf("не удалось записать заголовок tar: %w", err)
-				}
-				file, err := os.Open(path)
-				if err != nil {
-					return fmt.Errorf("не удалось открыть файл %s: %w", path, err)
-				}
-				defer file.Close()
-				if _, err := io.Copy(tw, file); err != nil {
-					return fmt.Errorf("не удалось скопировать содержимое файла %s в архив: %w", path, err)
-				}
-				return nil
-			})
-		}()
+		if err != nil {
+			return fmt.Errorf("ошибка при архивации контекста сборки: %w", err)
+		}
+		defer buildContext.Close()
 
 		// Запускаем сборку образа
-		buildResp, err := o.dockerClient.ImageBuild(ctx, pr, types.ImageBuildOptions{
+		buildResp, err := o.dockerClient.ImageBuild(ctx, buildContext, types.ImageBuildOptions{
 			Dockerfile: "Dockerfile",
 			Tags:       []string{imageTag},
 			Remove:     true, // Удалять промежуточные контейнеры
@@ -284,49 +254,13 @@ func (o *Orchestrator) buildService(ctx context.Context, serviceConfig *parser.S
 
 	o.sendLog(serviceConfig.Name, fmt.Sprintf("Подготовка и сборка Docker-образа из '%s'...", buildContextPath))
 
-	pr, pw := io.Pipe()
-	tw := tar.NewWriter(pw)
-	go func() {
-		defer pw.Close()
-		defer tw.Close()
+	buildContext, err := archive.TarWithOptions(buildContextPath, &archive.TarOptions{})
+	if err != nil {
+		return "", fmt.Errorf("ошибка при архивации контекста сборки: %w", err)
+	}
+	defer buildContext.Close()
 
-		filepath.Walk(buildContextPath, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return err
-			}
-
-			if !info.Mode().IsRegular() {
-				return nil
-			}
-
-			relPath, err := filepath.Rel(buildContextPath, path)
-			if err != nil {
-				return fmt.Errorf("не удалось получить относительный путь для %s: %w", path, err)
-			}
-
-			hdr, err := tar.FileInfoHeader(info, relPath)
-			if err != nil {
-				return fmt.Errorf("не удалось создать заголовок tar для %s: %w", path, err)
-			}
-
-			hdr.Name = relPath
-			if err := tw.WriteHeader(hdr); err != nil {
-				return fmt.Errorf("не удалось записать заголовок tar: %w", err)
-			}
-
-			file, err := os.Open(path)
-			if err != nil {
-				return fmt.Errorf("не удалось открыть файл %s: %w", path, err)
-			}
-			defer file.Close()
-			if _, err := io.Copy(tw, file); err != nil {
-				return fmt.Errorf("не удалось скопировать содержимое файла %s в архив: %w", path, err)
-			}
-			return nil
-		})
-	}()
-
-	buildResp, err := o.dockerClient.ImageBuild(ctx, pr, types.ImageBuildOptions{
+	buildResp, err := o.dockerClient.ImageBuild(ctx, buildContext, types.ImageBuildOptions{
 		Dockerfile: "Dockerfile",
 		Tags:       []string{imageTag},
 		Remove:     true,
