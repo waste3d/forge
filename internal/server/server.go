@@ -201,6 +201,40 @@ func InitializeServer(listenAddr string) error {
 	return nil
 }
 
+func (s *forgeServer) Build(req *pb.BuildRequest, stream pb.Forge_BuildServer) error {
+	s.logger.Info("получен Build-запрос")
+
+	config, err := parser.Parse([]byte(req.GetConfigContent()))
+	if err != nil {
+		s.logger.Error("ошибка парсинга forge.yaml", "error", err)
+		return status.Errorf(codes.InvalidArgument, "ошибка парсинга forge.yaml: %v", err)
+	}
+
+	appName := config.AppName
+	sm, err := state.NewManager()
+
+	if err != nil {
+		s.logger.Error("критическая ошибка инициализации state manager", "error", err)
+		return status.Errorf(codes.Internal, "ошибка инициализации state manager: %v", err)
+	}
+	defer sm.Close()
+
+	orch, err := orchestrator.New(appName, stream, s.logger, sm)
+	if err != nil {
+		s.logger.Error("критическая ошибка инициализации оркестратора", "error", err)
+		return status.Errorf(codes.Internal, "ошибка инициализации оркестратора: %v", err)
+	}
+
+	err = orch.Build(stream.Context(), config, req.GetServicesName())
+	if err != nil {
+		s.logger.Error("ошибка выполнения сборки", "appName", appName, "error", err)
+		return status.Errorf(codes.Internal, "ошибка выполнения сборки: %v", err)
+	}
+
+	s.logger.Info("сборка образов завершена", "appName", appName)
+	return nil
+}
+
 func (s *forgeServer) Status(ctx context.Context, req *pb.StatusRequest) (*pb.StatusResponse, error) {
 	appName := req.GetAppName()
 	s.logger.Info("получен Status-запрос", "appName", appName)
