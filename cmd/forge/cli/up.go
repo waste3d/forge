@@ -4,14 +4,13 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/waste3d/forge/cmd/forge/cli/helpers"
 	pb "github.com/waste3d/forge/internal/gen/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	"gopkg.in/yaml.v3"
 )
 
 var upCmd = &cobra.Command{
@@ -46,37 +45,11 @@ func runUpLogic() error {
 
 	infoLog("Чтение и обработка файла forge.yaml...\n")
 	configPath := "forge.yaml"
-	yamlContent, err := os.ReadFile(configPath)
+	modifiedYamlContent, err := helpers.LoadAndPrepareConfig(configPath)
 	if err != nil {
-		return fmt.Errorf("не удалось прочитать файл forge.yaml: %w", err)
+		return err
 	}
 
-	configDir, err := filepath.Abs(filepath.Dir(configPath))
-	if err != nil {
-		return fmt.Errorf("не удалось определить директорию конфига: %w", err)
-	}
-
-	var configData map[string]interface{}
-	if err := yaml.Unmarshal(yamlContent, &configData); err != nil {
-		return fmt.Errorf("не удалось распарсить YAML для модификации путей: %w", err)
-	}
-
-	if services, ok := configData["services"].([]interface{}); ok {
-		for _, s := range services {
-			if service, ok := s.(map[string]interface{}); ok {
-				if path, ok := service["path"].(string); ok && path != "" && !filepath.IsAbs(path) {
-					absPath := filepath.Join(configDir, path)
-					service["path"] = absPath
-					infoLog("Преобразован относительный путь '%s' в '%s'\n", path, absPath)
-				}
-			}
-		}
-	}
-
-	modifiedYamlContent, err := yaml.Marshal(configData)
-	if err != nil {
-		return fmt.Errorf("не удалось собрать модифицированный YAML: %w", err)
-	}
 	conn, err := grpc.Dial(daemonAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return fmt.Errorf("не удалось подключиться к демону: %w", err)
